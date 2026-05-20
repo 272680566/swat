@@ -9,7 +9,9 @@ import java.util.List;
 @Mapper
 public interface SiteMapper {
 
-    List<Site> findAll(@Param("keyword") String keyword);
+    List<Site> findAll(@Param("keyword") String keyword, @Param("limit") int limit, @Param("offset") int offset);
+
+    int countFiltered(@Param("keyword") String keyword);
 
     Site findById(@Param("id") Long id);
 
@@ -22,4 +24,6 @@ public interface SiteMapper {
     int deleteById(@Param("id") Long id);
 
     int countByVersionId(@Param("versionId") Long versionId);
+
+    int countAll();
 }

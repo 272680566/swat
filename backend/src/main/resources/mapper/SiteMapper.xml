@@ -9,12 +9,24 @@
         FROM sites
         <where>
             <if test="keyword != null and keyword != ''">
-                name ILIKE CONCAT('%', #{keyword}, '%')
+                (name ILIKE CONCAT('%', #{keyword}, '%')
                 OR region ILIKE CONCAT('%', #{keyword}, '%')
-                OR code ILIKE CONCAT('%', #{keyword}, '%')
+                OR code ILIKE CONCAT('%', #{keyword}, '%'))
             </if>
         </where>
-        ORDER BY id DESC
+        ORDER BY name ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countFiltered" resultType="int">
+        SELECT COUNT(*) FROM sites
+        <where>
+            <if test="keyword != null and keyword != ''">
+                (name ILIKE CONCAT('%', #{keyword}, '%')
+                OR region ILIKE CONCAT('%', #{keyword}, '%')
+                OR code ILIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
     </select>
 
     <select id="findById" resultType="com.swat.model.Site">
@@ -49,6 +61,10 @@
     <select id="countByVersionId" resultType="int">
         SELECT COUNT(*) FROM sites
         WHERE version_ids::jsonb @> to_jsonb(#{versionId})
+    </select>
+
+    <select id="countAll" resultType="int">
+        SELECT COUNT(*) FROM sites
     </select>
 
     <delete id="deleteById">

@@ -69,7 +69,10 @@
     <div class="issue-content">
       <div class="panel-header">
         <h3>问题列表</h3>
-        <button class="btn-add" @click="openAdd">&#x2795; 新增问题</button>
+        <div class="header-btns">
+          <button class="btn-import" @click="openImport">&#x1F4C1; 批量导入</button>
+          <button class="btn-add" @click="openAdd">&#x2795; 新增问题</button>
+        </div>
       </div>
 
       <div class="panel">
@@ -214,9 +217,9 @@
             </div>
             <div class="form-group">
               <label>内核版本 <span class="required">*</span></label>
-              <select v-model="form.kernelVersion" class="field-select">
+              <select v-model="form.kernelVersion" class="field-select" @mousedown="onKernelClick">
                 <option value="">请选择版本</option>
-                <option v-for="v in allVersions" :key="v.id" :value="v.versionCode">{{ v.versionCode }}</option>
+                <option v-for="v in filteredVersions" :key="v.id" :value="v.versionCode">{{ v.versionCode }}</option>
               </select>
             </div>
           </div>
@@ -365,12 +368,52 @@
         </form>
       </div>
     </div>
+
+    <!-- Import Modal -->
+    <div class="modal-overlay" v-if="showImport" @click.self="showImport = false">
+      <div class="modal">
+        <h3>批量导入问题</h3>
+        <div class="import-area" @click="pickFile">
+          <input type="file" ref="importFileInput" accept=".csv,.xlsx,.xls" @change="handleFile" class="import-file-input" />
+          <div class="import-upload">
+            <span class="import-icon">&#x1F4C2;</span>
+            <p>点击选择文件</p>
+            <p class="import-hint">支持 CSV、Excel（.xlsx）格式</p>
+          </div>
+        </div>
+        <div v-if="importPreview.length" class="import-preview">
+          <h4>预览 ({{ importPreview.length }} 条)</h4>
+          <div class="preview-table-wrap">
+            <table class="preview-table">
+              <thead>
+                <tr><th v-for="k in importKeys" :key="k">{{ k }}</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in importPreview.slice(0, 8)" :key="idx">
+                  <td v-for="k in importKeys" :key="k">{{ row[k] || '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="importPreview.length > 8" class="preview-more">... 还有 {{ importPreview.length - 8 }} 条</div>
+        </div>
+        <div v-if="importError" class="msg-error">{{ importError }}</div>
+        <div v-if="importSuccess" class="msg-success">{{ importSuccess }}</div>
+        <div class="form-actions">
+          <button class="btn-submit" :disabled="!importPreview.length || importing" @click="doImport">
+            {{ importing ? '导入中...' : '确认导入' }}
+          </button>
+          <button class="btn-cancel" @click="showImport = false">取消</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
-import { fetchIssues, createIssue, updateIssue, deleteIssue, fetchCategoryTree, fetchSites, fetchVersions, fetchRls } from '../api'
+import { fetchIssues, createIssue, updateIssue, deleteIssue, fetchCategoryTree, fetchAllSites, fetchAllVersions, fetchRls } from '../api'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import * as XLSX from 'xlsx'
 
 export default {
   name: 'IssuesView',
@@ -382,6 +425,11 @@ export default {
       pageSize: 10,
       total: 0,
       showModal: false,
+      showImport: false,
+      importPreview: [],
+      importError: '',
+      importSuccess: '',
+      importing: false,
       editing: false,
       editId: null,
       saving: false,
@@ -497,6 +545,17 @@ export default {
       const kw = this.siteSearch.toLowerCase()
       return this.allSites.filter(s => s.name.toLowerCase().includes(kw))
     },
+    importKeys() {
+      if (!this.importPreview.length) return []
+      return Object.keys(this.importPreview[0])
+    },
+    filteredVersions() {
+      if (!this.form.customerName) return []
+      const site = this.allSites.find(s => s.name === this.form.customerName)
+      if (!site || !site.versionIds) return []
+      const ids = this.parseIds(site.versionIds)
+      return this.allVersions.filter(v => ids.includes(v.id))
+    },
     catL2Opts() {
       if (!this.form.catL1) return []
       const key = this.form.catL1.split(':')[0]
@@ -597,20 +656,31 @@ export default {
       document.removeEventListener('mousemove', this.doResize)
       document.removeEventListener('mouseup', this.stopResize)
     },
+    onKernelClick() {
+      if (!this.form.customerName) {
+        ElMessage.warning('请选择客户名称')
+      }
+    },
+    parseIds(raw) {
+      if (!raw) return []
+      if (Array.isArray(raw)) return raw
+      try { return JSON.parse(raw) } catch { return [] }
+    },
     selectSite(name) {
       this.form.customerName = name
+      this.form.kernelVersion = ''
       this.siteDropdownOpen = false
       this.siteSearch = ''
     },
     async loadSites() {
       try {
-        const res = await fetchSites('')
+        const res = await fetchAllSites()
         this.allSites = Array.isArray(res.data) ? res.data : []
       } catch { this.allSites = [] }
     },
     async loadVersions() {
       try {
-        const res = await fetchVersions()
+        const res = await fetchAllVersions()
         this.allVersions = Array.isArray(res.data) ? res.data : []
       } catch { this.allVersions = [] }
     },
@@ -786,6 +856,150 @@ export default {
     onPageSizeChange() {
       this.page = 1
       this.loadIssues()
+    },
+    openImport() {
+      this.showImport = true; this.importPreview = []; this.importError = ''; this.importSuccess = ''
+    },
+    pickFile() {
+      this.$refs.importFileInput.click()
+    },
+    handleFile(e) {
+      const file = e.target.files[0]
+      if (file) this.parseFile(file)
+      e.target.value = ''
+    },
+    parseFile(file) {
+      this.importError = ''; this.importSuccess = ''; this.importPreview = []
+      const ext = file.name.split('.').pop().toLowerCase()
+      if (ext === 'xlsx' || ext === 'xls') {
+        const reader = new FileReader()
+        reader.onload = (ev) => {
+          try {
+            const wb = XLSX.read(ev.target.result, { type: 'array' })
+            const ws = wb.Sheets[wb.SheetNames[0]]
+            const json = XLSX.utils.sheet_to_json(ws, { header: 1 })
+            if (json.length < 2) { this.importError = '文件内容为空'; return }
+            const headers = json[0].map(h => String(h || '').trim())
+            const isDateCol = (h) => /时间|日期|date|time/i.test(h)
+            const data = json.slice(1).map(row => {
+              const obj = {}
+              headers.forEach((h, i) => {
+                const cell = row[i]
+                if (cell === undefined || cell === null) { obj[h] = '' }
+                else if (typeof cell === 'number') {
+                  obj[h] = isDateCol(h) ? this.excelToDate(cell) : String(cell)
+                }
+                else { obj[h] = String(cell).trim() }
+              })
+              return obj
+            }).filter(d => Object.values(d).some(v => v))
+            if (data.length === 0) { this.importError = '未解析到有效数据行'; return }
+            this.importPreview = data
+          } catch { this.importError = 'Excel 解析失败' }
+        }
+        reader.onerror = () => { this.importError = '文件读取失败' }
+        reader.readAsArrayBuffer(file)
+      } else {
+        const reader = new FileReader()
+        reader.onload = (ev) => {
+          try {
+            const text = ev.target.result
+            const lines = text.split(/\r?\n/).filter(l => l.trim())
+            if (lines.length < 2) { this.importError = '文件内容为空或格式不正确（需包含表头行和数据行）'; return }
+            const headers = lines[0].split(',').map(h => h.trim().replace(/^"(.*)"$/, '$1'))
+            const data = lines.slice(1).map(line => {
+              const cols = line.split(',').map(c => c.trim().replace(/^"(.*)"$/, '$1'))
+              const obj = {}
+              headers.forEach((h, i) => { obj[h] = cols[i] || '' })
+              return obj
+            }).filter(d => Object.values(d).some(v => v))
+            if (data.length === 0) { this.importError = '未解析到有效数据行'; return }
+            this.importPreview = data
+          } catch { this.importError = '文件解析失败，请检查格式' }
+        }
+        reader.onerror = () => { this.importError = '文件读取失败' }
+        reader.readAsText(file, 'UTF-8')
+      }
+    },
+    getField(row, ...keys) {
+      for (const k of keys) { if (row[k] !== undefined && row[k] !== '') return row[k] }
+      return ''
+    },
+    excelToDate(serial) {
+      if (typeof serial === 'string') return serial
+      if (typeof serial !== 'number') return ''
+      const utcMs = Math.round((serial - 25569) * 86400 * 1000)
+      const d = new Date(utcMs)
+      if (isNaN(d.getTime())) return ''
+      const pad = n => String(n).padStart(2, '0')
+      const datePart = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+      if (serial % 1 === 0) return datePart
+      return datePart + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+    },
+    toDateTime(val) {
+      if (!val && val !== 0) return ''
+      if (typeof val === 'number') return this.excelToDate(val)
+      let s = String(val).trim()
+      if (/^\d{5}$/.test(s)) { const n = parseInt(s); if (n > 30000 && n < 80000) return this.excelToDate(n) }
+      s = s.replace(/\//g, '-').replace(/\s+/g, 'T')
+      if (s.length === 10 && s.includes('-')) s += 'T00:00'
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return s
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(s)) return s.substring(0, 16)
+      return s
+    },
+    toBool(val) {
+      const s = String(val || '').trim()
+      return s === '是' || s === '有' || s === 'yes' || s === 'true' || s === '1'
+    },
+    async doImport() {
+      this.importError = ''; this.importSuccess = ''; this.importing = true
+      let count = 0
+      for (const row of this.importPreview) {
+        try {
+          const payload = {
+            occurTime: this.toDateTime(this.getField(row, '问题发生时间', 'occurTime')),
+            handleDate: this.getField(row, '日期', 'handleDate') || new Date().toISOString().slice(0, 10),
+            customerName: this.getField(row, '客户名称', 'customerName'),
+            description: this.getField(row, '问题简述', 'description'),
+            kernelVersion: this.getField(row, '内核版本', 'kernelVersion'),
+            mgmtDeploy: this.getField(row, '管控部署形态', 'mgmtDeploy'),
+            kernelDeploy: this.getField(row, '内核部署形态', 'kernelDeploy'),
+            rl: this.getField(row, 'RL', 'rl'),
+            perceiveTime: this.toDateTime(this.getField(row, '一线感知时间', 'perceiveTime')),
+            createTime: this.toDateTime(this.getField(row, '问题建单时间', 'createTime')),
+            swatStartTime: this.toDateTime(this.getField(row, 'SWAT开始处理时间', 'swatStartTime')),
+            boundTime: this.toDateTime(this.getField(row, '问题定界时间', 'boundTime')),
+            bizRecoverTime: this.toDateTime(this.getField(row, '业务恢复时间', 'bizRecoverTime')),
+            hasAlarm: this.toBool(this.getField(row, '有无告警', 'hasAlarm')),
+            alarmTrigger: this.toBool(this.getField(row, '告警触发', 'alarmTrigger')),
+            opsTicket: this.getField(row, '运维单号', 'opsTicket'),
+            ecareTicket: this.getField(row, 'ecare单号', 'ecareTicket'),
+            docLink: this.getField(row, '文档链接', 'docLink'),
+            screenLink: this.getField(row, '录屏链接', 'screenLink'),
+            bizInterrupt: this.toBool(this.getField(row, '业务中断', 'bizInterrupt')),
+            urgentRecover: this.toBool(this.getField(row, '紧急恢复', 'urgentRecover'))
+          }
+          // Build category from three-level fields
+          const catParts = []
+          const l1 = this.getField(row, '一级分类')
+          const l2 = this.getField(row, '二级分类')
+          const l3 = this.getField(row, '三级分类')
+          if (l1) catParts.push(l1)
+          if (l2) catParts.push(l2)
+          if (l3) catParts.push(l3)
+          if (catParts.length) payload.category = catParts.join(' > ')
+          if (!payload.customerName || !payload.description) continue
+          const res = await createIssue(payload)
+          if (res.data && res.data.success) count++
+        } catch {}
+      }
+      if (count > 0) {
+        this.importSuccess = `成功导入 ${count} 条数据`
+        setTimeout(() => { this.showImport = false; this.loadIssues() }, 1000)
+      } else {
+        this.importError = '导入失败，请检查文件格式（至少需要客户名称和问题简述）'
+      }
+      this.importing = false
     },
     openAdd() {
       this.editing = false; this.editId = null; this.errorMsg = ''
@@ -1343,4 +1557,25 @@ code {
   padding: 8px 20px; border: 1px solid #d9d9d9; background: #fff;
   color: #666; border-radius: 4px; cursor: pointer; font-size: 14px;
 }
+
+.header-btns { display: flex; gap: 10px; }
+.btn-import { padding: 8px 16px; background: #fff; color: #1890ff; border: 1px solid #1890ff; border-radius: 4px; font-size: 13px; cursor: pointer; }
+.btn-import:hover { background: #e6f7ff; }
+
+.import-file-input { display: none; }
+.import-area { margin-bottom: 16px; cursor: pointer; }
+.import-upload { display: block; border: 2px dashed #d9d9d9; border-radius: 8px; padding: 48px 20px; text-align: center; transition: all 0.2s; }
+.import-upload:hover { border-color: #1890ff; background: #fafbfc; }
+.import-icon { font-size: 36px; display: block; margin-bottom: 8px; }
+.import-upload p { color: #666; font-size: 14px; margin: 0; }
+.import-hint { font-size: 12px !important; color: #bbb !important; margin-top: 4px !important; }
+
+.import-preview { margin-bottom: 16px; }
+.import-preview h4 { font-size: 14px; color: #333; margin-bottom: 8px; }
+.preview-table-wrap { max-height: 260px; overflow: auto; border: 1px solid #f0f0f0; border-radius: 4px; }
+.preview-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.preview-table th { background: #fafafa; padding: 8px 10px; text-align: left; border-bottom: 1px solid #f0f0f0; color: #666; white-space: nowrap; }
+.preview-table td { padding: 6px 10px; border-bottom: 1px solid #f5f5f5; color: #333; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-more { padding: 8px 12px; text-align: center; color: #bbb; font-size: 13px; }
+.msg-success { color: #52c41a; font-size: 13px; background: #f6ffed; padding: 8px 12px; border-radius: 4px; margin-bottom: 12px; }
 </style>

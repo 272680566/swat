@@ -20,8 +20,20 @@ public class SiteService {
         this.versionMapper = versionMapper;
     }
 
-    public List<Site> list(String keyword) {
-        return siteMapper.findAll(keyword);
+    public List<Site> listAll() {
+        return siteMapper.findAll("", 10000, 0);
+    }
+
+    public Map<String, Object> list(String keyword, int page, int pageSize) {
+        int offset = (page - 1) * pageSize;
+        List<Site> list = siteMapper.findAll(keyword, pageSize, offset);
+        int total = siteMapper.countFiltered(keyword);
+        Map<String, Object> result = new HashMap<>();
+        result.put("list", list);
+        result.put("total", total);
+        result.put("page", page);
+        result.put("pageSize", pageSize);
+        return result;
     }
 
     public Site getById(Long id) {
@@ -38,16 +50,40 @@ public class SiteService {
             return result;
         }
 
-        try {
-            siteMapper.insert(site);
-            syncVersionSites(site.getId(), new ArrayList<>(), parseVersionIds(site.getVersionIds()));
-            result.put("success", true);
-            result.put("message", "创建成功");
-            result.put("data", site);
-        } catch (DuplicateKeyException e) {
-            result.put("success", false);
-            result.put("message", "局点名称已存在");
+        // Auto-generate site code
+        if (site.getCode() == null || site.getCode().trim().isEmpty()) {
+            String today = java.time.LocalDate.now().toString().replace("-", "");
+            int base = siteMapper.countAll();
+            boolean inserted = false;
+            for (int retry = 0; retry < 10; retry++) {
+                site.setCode(String.format("SITE-%s-%03d", today, base + 1 + retry));
+                try {
+                    siteMapper.insert(site);
+                    inserted = true;
+                    break;
+                } catch (DuplicateKeyException e) {
+                    // Retry with next sequence
+                }
+            }
+            if (!inserted) {
+                result.put("success", false);
+                result.put("message", "创建失败，请重试");
+                return result;
+            }
+        } else {
+            try {
+                siteMapper.insert(site);
+            } catch (DuplicateKeyException e) {
+                result.put("success", false);
+                result.put("message", "局点名称或编号已存在");
+                return result;
+            }
         }
+
+        syncVersionSites(site.getId(), new ArrayList<>(), parseVersionIds(site.getVersionIds()));
+        result.put("success", true);
+        result.put("message", "创建成功");
+        result.put("data", site);
         return result;
     }
 

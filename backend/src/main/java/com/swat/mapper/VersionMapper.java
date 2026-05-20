@@ -9,7 +9,9 @@ import java.util.List;
 @Mapper
 public interface VersionMapper {
 
-    List<Version> findAll();
+    List<Version> findAll(@Param("limit") int limit, @Param("offset") int offset);
+
+    int countAll();
 
     Version findById(@Param("id") Long id);
 

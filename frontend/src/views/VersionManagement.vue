@@ -19,8 +19,9 @@
         <tbody>
           <tr v-for="ver in versions" :key="ver.id">
             <td><code>{{ ver.versionCode }}</code></td>
-            <td>
-              <span class="site-tag" v-for="name in resolveSiteNames(ver.sites)" :key="name">{{ name }}</span>
+            <td class="site-tags-cell">
+              <span class="site-tag" v-for="name in resolveSiteNames(ver.sites).slice(0, 2)" :key="name">{{ name }}</span>
+              <span v-if="resolveSiteNames(ver.sites).length > 2" class="site-more">+{{ resolveSiteNames(ver.sites).length - 2 }}</span>
               <span v-if="!ver.sites || resolveSiteNames(ver.sites).length === 0" class="no-sites">-</span>
             </td>
             <td>{{ ver.releaseDate || '-' }}</td>
@@ -36,6 +37,24 @@
       </table>
 
       <div v-if="versions.length === 0" class="empty">暂无版本记录</div>
+
+      <div class="pagination">
+        <div class="page-left">
+          <select v-model.number="pageSize" class="page-size-select" @change="onPageSizeChange">
+            <option :value="10">10 条/页</option>
+            <option :value="20">20 条/页</option>
+            <option :value="50">50 条/页</option>
+          </select>
+        </div>
+        <div class="page-center">
+          <button class="page-btn" :disabled="page <= 1" @click="goPage(1)">首页</button>
+          <button class="page-btn" :disabled="page <= 1" @click="goPage(page - 1)">上一页</button>
+          <button v-for="p in pageNumbers" :key="p" class="page-btn" :class="{ active: p === page }" @click="goPage(p)">{{ p }}</button>
+          <button class="page-btn" :disabled="page >= totalPages" @click="goPage(page + 1)">下一页</button>
+          <button class="page-btn" :disabled="page >= totalPages" @click="goPage(totalPages)">末页</button>
+        </div>
+        <span class="page-info">共 {{ total }} 条</span>
+      </div>
     </div>
 
     <!-- Add/Edit Modal -->
@@ -91,7 +110,8 @@
 
 <script>
 import { fetchVersions, createVersion, updateVersion, deleteVersion, checkVersionCode } from '../api'
-import { fetchSites } from '../api'
+import { fetchAllSites } from '../api'
+import { ElMessageBox, ElMessage } from 'element-plus'
 
 export default {
   name: 'VersionManagementView',
@@ -107,10 +127,21 @@ export default {
       statusMap: { dev: '开发中', test: '测试中', released: '已发布', archived: '已归档' },
       allSites: [],
       versions: [],
+      page: 1,
+      pageSize: 10,
+      total: 0,
       editRelatedSites: []
     }
   },
   computed: {
+    totalPages() { return Math.max(1, Math.ceil(this.total / this.pageSize)) },
+    pageNumbers() {
+      const pages = []; const tp = this.totalPages
+      let s = Math.max(1, this.page - 2), e = Math.min(tp, this.page + 2)
+      if (e - s < 4) { if (s === 1) e = Math.min(tp, s + 4); else s = Math.max(1, e - 4) }
+      for (let i = s; i <= e; i++) pages.push(i)
+      return pages
+    },
     siteMap() {
       const map = {}
       this.allSites.forEach(s => { map[s.id] = s.name })
@@ -124,15 +155,17 @@ export default {
   methods: {
     async loadVersions() {
       try {
-        const res = await fetchVersions()
-        this.versions = Array.isArray(res.data) ? res.data : []
+        const res = await fetchVersions(this.page, this.pageSize)
+        const data = res.data
+        this.versions = Array.isArray(data.list) ? data.list : []
+        this.total = data.total || 0
       } catch {
-        this.versions = []
+        this.versions = []; this.total = 0
       }
     },
     async loadSites() {
       try {
-        const res = await fetchSites('')
+        const res = await fetchAllSites()
         this.allSites = Array.isArray(res.data) ? res.data : []
       } catch {
         this.allSites = []
@@ -151,6 +184,8 @@ export default {
       const ids = this.parseIds(raw)
       return ids.map(id => this.siteMap[id] || String(id)).filter(Boolean)
     },
+    goPage(p) { this.page = p; this.loadVersions() },
+    onPageSizeChange() { this.page = 1; this.loadVersions() },
     openAdd() {
       this.editing = false
       this.editId = null
@@ -219,17 +254,20 @@ export default {
       }
     },
     async deleteVersion(ver) {
-      if (!confirm(`确定删除版本「${ver.versionCode}」吗？`)) return
       try {
+        await ElMessageBox.confirm(
+          `确定删除版本「${ver.versionCode}」吗？`,
+          '删除确认',
+          { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+        )
         const res = await deleteVersion(ver.id)
         if (res.data.success) {
           this.loadVersions()
+          ElMessage.success('删除成功')
         } else {
-          alert(res.data.message)
+          ElMessage.error(res.data.message)
         }
-      } catch {
-        alert('删除失败，请稍后重试')
-      }
+      } catch { /* cancelled */ }
     }
   }
 }
@@ -282,14 +320,21 @@ code {
   color: #d4380d;
 }
 
+.site-tags-cell { max-width: 160px; }
 .site-tag {
-  display: inline-block;
+  display: inline-block; vertical-align: middle;
   padding: 2px 6px;
   margin: 2px 4px 2px 0;
   background: #e6f7ff;
   color: #1890ff;
   border-radius: 3px;
   font-size: 12px;
+}
+.site-more {
+  display: inline-block; vertical-align: middle;
+  padding: 2px 6px; margin: 2px 4px 2px 0;
+  background: #f0f0f0; color: #999; border: 1px solid #e8e8e8;
+  border-radius: 3px; font-size: 12px; cursor: default;
 }
 
 .no-sites { color: #ccc; font-size: 13px; }
@@ -411,4 +456,14 @@ code {
   cursor: pointer;
   font-size: 14px;
 }
+
+.pagination { display: flex; align-items: center; justify-content: space-between; padding-top: 16px; border-top: 1px solid #f0f0f0; margin-top: 16px; }
+.page-left { flex-shrink: 0; }
+.page-size-select { padding: 6px 8px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 13px; outline: none; background: #fff; }
+.page-center { display: flex; align-items: center; gap: 4px; }
+.page-btn { min-width: 36px; height: 32px; padding: 0 10px; border: 1px solid #d9d9d9; background: #fff; color: #555; border-radius: 4px; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.page-btn:hover:not(:disabled) { border-color: #1890ff; color: #1890ff; }
+.page-btn.active { background: #1890ff; border-color: #1890ff; color: #fff; }
+.page-btn:disabled { color: #d9d9d9; cursor: not-allowed; }
+.page-info { font-size: 13px; color: #999; margin-left: 12px; flex-shrink: 0; }
 </style>

@@ -21,8 +21,20 @@ public class VersionService {
         this.siteMapper = siteMapper;
     }
 
-    public List<Version> list() {
-        return versionMapper.findAll();
+    public List<Version> listAll() {
+        return versionMapper.findAll(10000, 0);
+    }
+
+    public Map<String, Object> list(int page, int pageSize) {
+        int offset = (page - 1) * pageSize;
+        List<Version> list = versionMapper.findAll(pageSize, offset);
+        int total = versionMapper.countAll();
+        Map<String, Object> result = new HashMap<>();
+        result.put("list", list);
+        result.put("total", total);
+        result.put("page", page);
+        result.put("pageSize", pageSize);
+        return result;
     }
 
     public Version getById(Long id) {

@@ -13,7 +13,6 @@
       <table class="table">
         <thead>
           <tr>
-            <th>局点编号</th>
             <th>局点名称</th>
             <th>涉及版本</th>
             <th>地区</th>
@@ -25,10 +24,10 @@
         </thead>
         <tbody>
           <tr v-for="site in sites" :key="site.id">
-            <td>{{ site.code }}</td>
             <td>{{ site.name }}</td>
-            <td>
-              <span class="ver-tag" v-for="v in resolveVersionCodes(site.versionIds)" :key="v">{{ v }}</span>
+            <td class="ver-tags-cell">
+              <span class="ver-tag" v-for="v in resolveVersionCodes(site.versionIds).slice(0, 2)" :key="v">{{ v }}</span>
+              <span v-if="resolveVersionCodes(site.versionIds).length > 2" class="ver-more">+{{ resolveVersionCodes(site.versionIds).length - 2 }}</span>
               <span v-if="!site.versionIds" class="no-data">-</span>
             </td>
             <td>{{ site.region }}</td>
@@ -48,16 +47,30 @@
       </table>
 
       <div v-if="sites.length === 0" class="empty">暂无局点数据</div>
+
+      <div class="pagination">
+        <div class="page-left">
+          <select v-model.number="pageSize" class="page-size-select" @change="onPageSizeChange">
+            <option :value="10">10 条/页</option>
+            <option :value="20">20 条/页</option>
+            <option :value="50">50 条/页</option>
+          </select>
+        </div>
+        <div class="page-center">
+          <button class="page-btn" :disabled="page <= 1" @click="goPage(1)">首页</button>
+          <button class="page-btn" :disabled="page <= 1" @click="goPage(page - 1)">上一页</button>
+          <button v-for="p in pageNumbers" :key="p" class="page-btn" :class="{ active: p === page }" @click="goPage(p)">{{ p }}</button>
+          <button class="page-btn" :disabled="page >= totalPages" @click="goPage(page + 1)">下一页</button>
+          <button class="page-btn" :disabled="page >= totalPages" @click="goPage(totalPages)">末页</button>
+        </div>
+        <span class="page-info">共 {{ total }} 条</span>
+      </div>
     </div>
 
     <div class="modal-overlay" v-if="showModal" @click.self="showModal = false">
       <div class="modal">
         <h3>{{ editing ? '编辑局点' : '新增局点' }}</h3>
         <form @submit.prevent="saveSite">
-          <div class="form-group">
-            <label>局点编号</label>
-            <input v-model="form.code" type="text" placeholder="如 SITE-001" />
-          </div>
           <div class="form-group">
             <label>局点名称 <span class="required">*</span></label>
             <input
@@ -167,7 +180,8 @@
 
 <script>
 import { fetchSites, createSite, updateSite, deleteSite, checkSiteName } from '../api'
-import { fetchVersions } from '../api'
+import { fetchAllVersions } from '../api'
+import { ElMessageBox, ElMessage } from 'element-plus'
 
 export default {
   name: 'SiteManagementView',
@@ -181,9 +195,22 @@ export default {
       errorMsg: '',
       form: { code: '', name: '', versionIds: [], region: '', contact: '', phone: '', active: true },
       sites: [],
+      page: 1,
+      pageSize: 10,
+      total: 0,
       allVersions: [],
       searchTimer: null,
       dropdownOpen: false
+    }
+  },
+  computed: {
+    totalPages() { return Math.max(1, Math.ceil(this.total / this.pageSize)) },
+    pageNumbers() {
+      const pages = []; const tp = this.totalPages
+      let s = Math.max(1, this.page - 2), e = Math.min(tp, this.page + 2)
+      if (e - s < 4) { if (s === 1) e = Math.min(tp, s + 4); else s = Math.max(1, e - 4) }
+      for (let i = s; i <= e; i++) pages.push(i)
+      return pages
     }
   },
   mounted() {
@@ -197,15 +224,17 @@ export default {
   methods: {
     async loadSites() {
       try {
-        const res = await fetchSites(this.keyword)
-        this.sites = Array.isArray(res.data) ? res.data : []
+        const res = await fetchSites(this.keyword, this.page, this.pageSize)
+        const data = res.data
+        this.sites = Array.isArray(data.list) ? data.list : []
+        this.total = data.total || 0
       } catch {
-        this.sites = []
+        this.sites = []; this.total = 0
       }
     },
     async loadVersions() {
       try {
-        const res = await fetchVersions()
+        const res = await fetchAllVersions()
         this.allVersions = Array.isArray(res.data) ? res.data : []
       } catch {
         this.allVersions = []
@@ -250,8 +279,11 @@ export default {
     },
     debounceSearch() {
       clearTimeout(this.searchTimer)
+      this.page = 1
       this.searchTimer = setTimeout(() => this.loadSites(), 300)
     },
+    goPage(p) { this.page = p; this.loadSites() },
+    onPageSizeChange() { this.page = 1; this.loadSites() },
     openAdd() {
       this.editing = false
       this.editId = null
@@ -276,8 +308,8 @@ export default {
     },
     async saveSite() {
       this.errorMsg = ''
-      if (!this.form.name || !this.form.code) {
-        this.errorMsg = '请填写必填项'
+      if (!this.form.name) {
+        this.errorMsg = '局点名称不能为空'
         return
       }
       this.saving = true
@@ -321,17 +353,20 @@ export default {
       }
     },
     async deleteSite(site) {
-      if (!confirm(`确定删除局点「${site.name}」吗？`)) return
       try {
+        await ElMessageBox.confirm(
+          `确定删除局点「${site.name}」吗？`,
+          '删除确认',
+          { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+        )
         const res = await deleteSite(site.id)
         if (res.data.success) {
           this.loadSites()
+          ElMessage.success('删除成功')
         } else {
-          alert(res.data.message)
+          ElMessage.error(res.data.message)
         }
-      } catch {
-        alert('删除失败，请稍后重试')
-      }
+      } catch { /* cancelled */ }
     }
   }
 }
@@ -393,8 +428,9 @@ export default {
 .tag-on { color: #52c41a; font-weight: 500; }
 .tag-off { color: #d9d9d9; }
 
+.ver-tags-cell { max-width: 160px; }
 .ver-tag {
-  display: inline-block;
+  display: inline-block; vertical-align: middle;
   padding: 2px 6px;
   margin: 2px 4px 2px 0;
   background: #fff7e6;
@@ -402,6 +438,13 @@ export default {
   border: 1px solid #ffd591;
   border-radius: 3px;
   font-size: 12px;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ver-more {
+  display: inline-block; vertical-align: middle;
+  padding: 2px 6px; margin: 2px 4px 2px 0;
+  background: #f0f0f0; color: #999; border: 1px solid #e8e8e8;
+  border-radius: 3px; font-size: 12px; cursor: default;
 }
 
 .no-data { color: #ccc; }
@@ -620,4 +663,14 @@ export default {
   cursor: pointer;
   font-size: 14px;
 }
+
+.pagination { display: flex; align-items: center; justify-content: space-between; padding-top: 16px; border-top: 1px solid #f0f0f0; margin-top: 16px; }
+.page-left { flex-shrink: 0; }
+.page-size-select { padding: 6px 8px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 13px; outline: none; background: #fff; }
+.page-center { display: flex; align-items: center; gap: 4px; }
+.page-btn { min-width: 36px; height: 32px; padding: 0 10px; border: 1px solid #d9d9d9; background: #fff; color: #555; border-radius: 4px; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.page-btn:hover:not(:disabled) { border-color: #1890ff; color: #1890ff; }
+.page-btn.active { background: #1890ff; border-color: #1890ff; color: #fff; }
+.page-btn:disabled { color: #d9d9d9; cursor: not-allowed; }
+.page-info { font-size: 13px; color: #999; margin-left: 12px; flex-shrink: 0; }
 </style>

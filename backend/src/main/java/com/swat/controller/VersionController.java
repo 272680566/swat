@@ -5,6 +5,7 @@ import com.swat.service.VersionService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -18,8 +19,15 @@ public class VersionController {
     }
 
     @GetMapping
-    public Object list() {
-        return versionService.list();
+    public Map<String, Object> list(
+            @RequestParam(required = false, defaultValue = "1") int page,
+            @RequestParam(required = false, defaultValue = "10") int pageSize) {
+        return versionService.list(page, pageSize);
+    }
+
+    @GetMapping("/all")
+    public List<Version> listAll() {
+        return versionService.listAll();
     }
 
     @GetMapping("/{id}")

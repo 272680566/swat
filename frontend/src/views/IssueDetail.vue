@@ -326,7 +326,7 @@
 </template>
 
 <script>
-import { fetchIssue, fetchVersions, fetchCategoryTree, updateIssue, fetchRls } from '../api'
+import { fetchIssue, fetchAllVersions, fetchCategoryTree, updateIssue, fetchRls } from '../api'
 import { ElMessage } from 'element-plus'
 
 export default {
@@ -400,7 +400,7 @@ export default {
     },
     async loadVersions() {
       try {
-        const res = await fetchVersions()
+        const res = await fetchAllVersions()
         this.allVersions = Array.isArray(res.data) ? res.data : []
       } catch { this.allVersions = [] }
     },

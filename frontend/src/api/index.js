@@ -15,8 +15,12 @@ export function register(username, password, email) {
 }
 
 // Site APIs
-export function fetchSites(keyword) {
-  return api.get('/sites', { params: { keyword } })
+export function fetchSites(keyword, page, pageSize) {
+  return api.get('/sites', { params: { keyword, page, pageSize } })
+}
+
+export function fetchAllSites() {
+  return api.get('/sites/all')
 }
 
 export function fetchSite(id) {
@@ -40,8 +44,12 @@ export function checkSiteName(name) {
 }
 
 // Version APIs
-export function fetchVersions() {
-  return api.get('/versions')
+export function fetchVersions(page, pageSize) {
+  return api.get('/versions', { params: { page, pageSize } })
+}
+
+export function fetchAllVersions() {
+  return api.get('/versions/all')
 }
 
 export function fetchVersion(id) {

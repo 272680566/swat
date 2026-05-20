@@ -5,6 +5,7 @@ import com.swat.service.SiteService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -18,8 +19,16 @@ public class SiteController {
     }
 
     @GetMapping
-    public Object list(@RequestParam(required = false, defaultValue = "") String keyword) {
-        return siteService.list(keyword);
+    public Map<String, Object> list(
+            @RequestParam(required = false, defaultValue = "") String keyword,
+            @RequestParam(required = false, defaultValue = "1") int page,
+            @RequestParam(required = false, defaultValue = "10") int pageSize) {
+        return siteService.list(keyword, page, pageSize);
+    }
+
+    @GetMapping("/all")
+    public List<Site> listAll() {
+        return siteService.listAll();
     }
 
     @GetMapping("/{id}")
