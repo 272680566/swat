@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.swat.mapper.VersionMapper">
+
+    <select id="findAll" resultType="com.swat.model.Version">
+        SELECT id, version_code, sites, release_date, status, notes, created_at, updated_at
+        FROM versions
+        ORDER BY id DESC
+    </select>
+
+    <select id="findById" resultType="com.swat.model.Version">
+        SELECT id, version_code, sites, release_date, status, notes, created_at, updated_at
+        FROM versions
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insert" parameterType="com.swat.model.Version" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO versions (version_code, sites, release_date, status, notes, created_at, updated_at)
+        VALUES (#{versionCode}, #{sites}, #{releaseDate}::DATE, #{status}, #{notes}, NOW(), NOW())
+    </insert>
+
+    <update id="update" parameterType="com.swat.model.Version">
+        UPDATE versions SET
+            version_code = #{versionCode},
+            sites = #{sites},
+            release_date = #{releaseDate}::DATE,
+            status = #{status},
+            notes = #{notes},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <select id="findByVersionCode" resultType="com.swat.model.Version">
+        SELECT id, version_code, sites, release_date, status, notes, created_at, updated_at
+        FROM versions
+        WHERE version_code = #{versionCode}
+    </select>
+
+    <update id="updateSites">
+        UPDATE versions SET sites = #{sites}, updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM versions WHERE id = #{id}
+    </delete>
+
+</mapper>

@@ -1,0 +1,15 @@
+server:
+  port: 45123
+
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5432/swat
+    username: postgres
+    password: "050502422"
+    driver-class-name: org.postgresql.Driver
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.swat.model
+  configuration:
+    map-underscore-to-camel-case: true
