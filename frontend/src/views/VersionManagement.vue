@@ -262,7 +262,13 @@ export default {
       this.importError = ''; this.importSuccess = ''; this.importing = true
       let count = 0
       const getField = (row, ...keys) => { for (const k of keys) { if (row[k]) return row[k] } return '' }
-      for (const row of this.importPreview) {
+      const seen = new Set()
+      const deduped = this.importPreview.filter(row => {
+        const vc = getField(row, '版本号', 'versionCode')
+        if (!vc || seen.has(vc)) return false
+        seen.add(vc); return true
+      })
+      for (const row of deduped) {
         try {
           const vc = getField(row, '版本号', 'versionCode')
           if (!vc) continue

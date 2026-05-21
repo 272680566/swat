@@ -318,7 +318,13 @@ export default {
       this.importError = ''; this.importSuccess = ''; this.importing = true
       let count = 0
       const getField = (row, ...keys) => { for (const k of keys) { if (row[k]) return row[k] } return '' }
-      for (const row of this.importPreview) {
+      const seen = new Set()
+      const deduped = this.importPreview.filter(row => {
+        const name = getField(row, '局点名称', 'name')
+        if (!name || seen.has(name)) return false
+        seen.add(name); return true
+      })
+      for (const row of deduped) {
         try {
           const name = getField(row, '局点名称', 'name')
           if (!name) continue
