@@ -70,6 +70,9 @@
       <div class="panel-header">
         <h3>问题列表</h3>
         <div class="header-btns">
+          <button class="btn-urgent" :class="{ active: filterUrgentRecover === '是' }" @click="toggleUrgentFilter">
+            &#x1F6A8; 紧急恢复问题{{ filterUrgentRecover === '是' ? ' (已筛选)' : '' }}
+          </button>
           <button class="btn-import" @click="openImport">&#x1F4C1; 批量导入</button>
           <button class="btn-add" @click="openAdd">&#x2795; 新增问题</button>
         </div>
@@ -77,21 +80,19 @@
 
       <div class="panel">
         <div class="search-bar">
-          <input v-model="keyword" placeholder="搜索客户名称、问题简述或编号..." class="search-input" @input="debounceSearch" />
-          <select v-model="filterStatus" class="filter-select" @change="loadIssues">
-            <option value="">全部状态</option>
-            <option value="待处理">待处理</option>
-            <option value="处理中">处理中</option>
-            <option value="已解决">已解决</option>
-            <option value="已关闭">已关闭</option>
-          </select>
           <div class="gear-btn-wrap">
             <button class="gear-btn" @click.stop="showColumnPicker = !showColumnPicker">&#x2699;</button>
             <div v-if="showColumnPicker" class="column-picker" @click.stop>
+            <div class="picker-scroll">
               <div v-for="col in columnDefs" :key="col.key" class="picker-item" @click="toggleColumn(col.key)">
                 <span class="picker-check">{{ colVisible(col.key) ? '&#x2713;' : '' }}</span>
                 {{ col.label }}
               </div>
+            </div>
+            <div class="picker-footer">
+              <div class="picker-divider"></div>
+              <div class="picker-item picker-reset" @click="resetColumns">&#x21BA; 重置为默认</div>
+            </div>
             </div>
           </div>
         </div>
@@ -101,11 +102,35 @@
           <thead>
             <tr>
               <th v-if="colVisible('issueNo')" class="resizable" :style="colWidth('issueNo')">问题编号<div class="resize-handle" data-col="issueNo" @mousedown.stop="startResize($event, 'issueNo')"></div></th>
-              <th v-if="colVisible('occurTime')" class="resizable" :style="colWidth('occurTime')">日期<div class="resize-handle" data-col="occurTime" @mousedown.stop="startResize($event, 'occurTime')"></div></th>
-              <th v-if="colVisible('customerName')" class="resizable" :style="colWidth('customerName')">客户名称<div class="resize-handle" data-col="customerName" @mousedown.stop="startResize($event, 'customerName')"></div></th>
-              <th v-if="colVisible('description')" class="resizable" :style="colWidth('description')">问题简述<div class="resize-handle" data-col="description" @mousedown.stop="startResize($event, 'description')"></div></th>
+              <th class="sticky-left resizable" :style="stickyStyle('occurTime', 0)">
+                <div class="th-filter">
+                  <span>日期</span>
+                  <span class="filter-icon" :class="{ active: filterDateStart || filterDateEnd }" @click.stop="openDatePicker($event)">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
+                  </span>
+                </div>
+                <div class="resize-handle" data-col="occurTime" @mousedown.stop="startResize($event, 'occurTime')"></div>
+              </th>
+              <th class="sticky-left resizable" :style="stickyStyle('customerName', 120)">
+                <div class="th-filter">
+                  <span>客户名称</span>
+                  <span class="filter-icon" :class="{ active: filterCustomerName.length }" @click.stop="openCustomerPicker($event)">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
+                  </span>
+                </div>
+                <div class="resize-handle" data-col="customerName" @mousedown.stop="startResize($event, 'customerName')"></div>
+              </th>
+              <th class="sticky-left resizable" :style="stickyStyle('description', 260)">问题简述<div class="resize-handle" data-col="description" @mousedown.stop="startResize($event, 'description')"></div></th>
               <th v-if="colVisible('category')" class="resizable" :style="colWidth('category')">问题分类<div class="resize-handle" data-col="category" @mousedown.stop="startResize($event, 'category')"></div></th>
-              <th v-if="colVisible('kernelVersion')" class="resizable" :style="colWidth('kernelVersion')">内核版本<div class="resize-handle" data-col="kernelVersion" @mousedown.stop="startResize($event, 'kernelVersion')"></div></th>
+              <th v-if="colVisible('kernelVersion')" class="resizable" :style="colWidth('kernelVersion')">
+                <div class="th-filter">
+                  <span>内核版本</span>
+                  <span class="filter-icon" :class="{ active: filterKernelVersions.length }" @click.stop="openVersionPicker($event)">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
+                  </span>
+                </div>
+                <div class="resize-handle" data-col="kernelVersion" @mousedown.stop="startResize($event, 'kernelVersion')"></div>
+              </th>
               <th v-if="colVisible('status')" class="resizable" :style="colWidth('status')">状态<div class="resize-handle" data-col="status" @mousedown.stop="startResize($event, 'status')"></div></th>
               <th v-if="colVisible('keySite')" class="resizable" :style="colWidth('keySite')">重点局点<div class="resize-handle" data-col="keySite" @mousedown.stop="startResize($event, 'keySite')"></div></th>
               <th v-if="colVisible('siteType')" class="resizable" :style="colWidth('siteType')">局点类型<div class="resize-handle" data-col="siteType" @mousedown.stop="startResize($event, 'siteType')"></div></th>
@@ -113,15 +138,41 @@
               <th v-if="colVisible('rl')" class="resizable" :style="colWidth('rl')">RL<div class="resize-handle" data-col="rl" @mousedown.stop="startResize($event, 'rl')"></div></th>
               <th v-if="colVisible('opsTicket')" class="resizable" :style="colWidth('opsTicket')">运维系统单号<div class="resize-handle" data-col="opsTicket" @mousedown.stop="startResize($event, 'opsTicket')"></div></th>
               <th v-if="colVisible('ecareTicket')" class="resizable" :style="colWidth('ecareTicket')">ecare单号<div class="resize-handle" data-col="ecareTicket" @mousedown.stop="startResize($event, 'ecareTicket')"></div></th>
-              <th class="sticky-col">操作</th>
+              <th v-if="colVisible('kernelDeploy')" class="resizable" :style="colWidth('kernelDeploy')">内核部署形态<div class="resize-handle" data-col="kernelDeploy" @mousedown.stop="startResize($event, 'kernelDeploy')"></div></th>
+              <th v-if="colVisible('bizInterrupt')" class="resizable" :style="colWidth('bizInterrupt')">业务中断<div class="resize-handle" data-col="bizInterrupt" @mousedown.stop="startResize($event, 'bizInterrupt')"></div></th>
+              <th v-if="colVisible('urgentRecover')" class="resizable" :style="colWidth('urgentRecover')">
+                <div class="th-filter">
+                  <span>紧急恢复</span>
+                  <span class="filter-icon" :class="{ active: filterUrgentRecover !== '' }" @click.stop="openUrgentFilter($event)">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></svg>
+                  </span>
+                </div>
+                <div class="resize-handle" data-col="urgentRecover" @mousedown.stop="startResize($event, 'urgentRecover')"></div>
+              </th>
+              <th v-if="colVisible('hasAlarm')" class="resizable" :style="colWidth('hasAlarm')">有无告警<div class="resize-handle" data-col="hasAlarm" @mousedown.stop="startResize($event, 'hasAlarm')"></div></th>
+              <th v-if="colVisible('alarmTrigger')" class="resizable" :style="colWidth('alarmTrigger')">告警触发<div class="resize-handle" data-col="alarmTrigger" @mousedown.stop="startResize($event, 'alarmTrigger')"></div></th>
+              <th v-if="colVisible('occurTimeFull')" class="resizable" :style="colWidth('occurTimeFull')">问题发生时间<div class="resize-handle" data-col="occurTimeFull" @mousedown.stop="startResize($event, 'occurTimeFull')"></div></th>
+              <th v-if="colVisible('perceiveTime')" class="resizable" :style="colWidth('perceiveTime')">一线感知时间<div class="resize-handle" data-col="perceiveTime" @mousedown.stop="startResize($event, 'perceiveTime')"></div></th>
+              <th v-if="colVisible('createTime')" class="resizable" :style="colWidth('createTime')">问题建单时间<div class="resize-handle" data-col="createTime" @mousedown.stop="startResize($event, 'createTime')"></div></th>
+              <th v-if="colVisible('swatStartTime')" class="resizable" :style="colWidth('swatStartTime')">SWAT开始处理时间<div class="resize-handle" data-col="swatStartTime" @mousedown.stop="startResize($event, 'swatStartTime')"></div></th>
+              <th v-if="colVisible('boundTime')" class="resizable" :style="colWidth('boundTime')">问题定界时间<div class="resize-handle" data-col="boundTime" @mousedown.stop="startResize($event, 'boundTime')"></div></th>
+              <th v-if="colVisible('bizRecoverTime')" class="resizable" :style="colWidth('bizRecoverTime')">业务恢复时间<div class="resize-handle" data-col="bizRecoverTime" @mousedown.stop="startResize($event, 'bizRecoverTime')"></div></th>
+              <th v-if="colVisible('swatPullTime')" class="resizable" :style="colWidth('swatPullTime')">拉SWAT时间<div class="resize-handle" data-col="swatPullTime" @mousedown.stop="startResize($event, 'swatPullTime')"></div></th>
+              <th v-if="colVisible('discoverDuration')" class="resizable" :style="colWidth('discoverDuration')">问题发现耗时<div class="resize-handle" data-col="discoverDuration" @mousedown.stop="startResize($event, 'discoverDuration')"></div></th>
+              <th v-if="colVisible('createOrderDuration')" class="resizable" :style="colWidth('createOrderDuration')">一线建单耗时<div class="resize-handle" data-col="createOrderDuration" @mousedown.stop="startResize($event, 'createOrderDuration')"></div></th>
+              <th v-if="colVisible('warroomDuration')" class="resizable" :style="colWidth('warroomDuration')">启动WARROOM耗时<div class="resize-handle" data-col="warroomDuration" @mousedown.stop="startResize($event, 'warroomDuration')"></div></th>
+              <th v-if="colVisible('swatBoundDuration')" class="resizable" :style="colWidth('swatBoundDuration')">SWAT定界耗时<div class="resize-handle" data-col="swatBoundDuration" @mousedown.stop="startResize($event, 'swatBoundDuration')"></div></th>
+              <th v-if="colVisible('swatRecoverDuration')" class="resizable" :style="colWidth('swatRecoverDuration')">SWAT介入恢复耗时<div class="resize-handle" data-col="swatRecoverDuration" @mousedown.stop="startResize($event, 'swatRecoverDuration')"></div></th>
+              <th v-if="colVisible('e2eDuration')" class="resizable" :style="colWidth('e2eDuration')">端到端恢复耗时<div class="resize-handle" data-col="e2eDuration" @mousedown.stop="startResize($event, 'e2eDuration')"></div></th>
+              <th class="sticky-col" style="position:sticky;right:0;z-index:5;background:#fafafa">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="item in filteredIssues" :key="item.id">
               <td v-if="colVisible('issueNo')"><code>{{ item.issueNo }}</code></td>
-              <td v-if="colVisible('occurTime')">{{ item.handleDate || formatDate(item.occurTime) }}</td>
-              <td v-if="colVisible('customerName')">{{ item.customerName || '-' }}</td>
-              <td v-if="colVisible('description')" class="desc-cell">{{ item.description || '-' }}</td>
+              <td class="sticky-left" :style="stickyStyle('occurTime', 0)">{{ item.handleDate || formatDate(item.occurTime) }}</td>
+              <td class="sticky-left" :style="stickyStyle('customerName', 120)">{{ item.customerName || '-' }}</td>
+              <td class="sticky-left desc-cell" :style="stickyStyle('description', 260)">{{ item.description || '-' }}</td>
               <td v-if="colVisible('category')"><span class="cat-badge" :class="catBadgeClass(item.category)">{{ item.category || '-' }}</span></td>
               <td v-if="colVisible('kernelVersion')">{{ item.kernelVersion || '-' }}</td>
               <td v-if="colVisible('status')"><span class="status-tag" :class="'s-' + item.status">{{ item.status || '-' }}</span></td>
@@ -131,6 +182,24 @@
               <td v-if="colVisible('rl')">{{ item.rl || '-' }}</td>
               <td v-if="colVisible('opsTicket')">{{ item.opsTicket || '-' }}</td>
               <td v-if="colVisible('ecareTicket')">{{ item.ecareTicket || '-' }}</td>
+              <td v-if="colVisible('kernelDeploy')">{{ item.kernelDeploy || '-' }}</td>
+              <td v-if="colVisible('bizInterrupt')">{{ item.bizInterrupt ? '是' : '否' }}</td>
+              <td v-if="colVisible('urgentRecover')">{{ item.urgentRecover ? '是' : '否' }}</td>
+              <td v-if="colVisible('hasAlarm')">{{ item.hasAlarm ? '有' : '无' }}</td>
+              <td v-if="colVisible('alarmTrigger')">{{ item.alarmTrigger ? '是' : '否' }}</td>
+              <td v-if="colVisible('occurTimeFull')">{{ item.occurTime || '-' }}</td>
+              <td v-if="colVisible('perceiveTime')">{{ item.perceiveTime || '-' }}</td>
+              <td v-if="colVisible('createTime')">{{ item.createTime || '-' }}</td>
+              <td v-if="colVisible('swatStartTime')">{{ item.swatStartTime || '-' }}</td>
+              <td v-if="colVisible('boundTime')">{{ item.boundTime || '-' }}</td>
+              <td v-if="colVisible('bizRecoverTime')">{{ item.bizRecoverTime || '-' }}</td>
+              <td v-if="colVisible('swatPullTime')">{{ calcMinDisplay(item.createTime, item.swatStartTime) }}</td>
+              <td v-if="colVisible('discoverDuration')">{{ calcMinDisplay(item.occurTime, item.perceiveTime) }}</td>
+              <td v-if="colVisible('createOrderDuration')">{{ calcMinDisplay(item.perceiveTime, item.createTime) }}</td>
+              <td v-if="colVisible('warroomDuration')">{{ calcMinDisplay(item.createTime, item.swatStartTime) }}</td>
+              <td v-if="colVisible('swatBoundDuration')">{{ calcMinDisplay(item.swatStartTime, item.boundTime) }}</td>
+              <td v-if="colVisible('swatRecoverDuration')">{{ calcMinDisplay(item.swatStartTime, item.bizRecoverTime) }}</td>
+              <td v-if="colVisible('e2eDuration')">{{ calcMinDisplay(item.occurTime, item.bizRecoverTime) }}</td>
               <td class="sticky-col">
                 <button class="btn-action" @click="$router.push('/home/issues/' + item.id)">编辑</button>
                 <button class="btn-action danger" @click="deleteIssue(item)">删除</button>
@@ -138,6 +207,11 @@
             </tr>
           </tbody>
         </table>
+        </div>
+
+        <div v-if="filteredIssues.length === 0" class="empty">
+          <div class="empty-icon">&#x1F50D;</div>
+          <div>暂无匹配的问题记录</div>
         </div>
 
         <!-- Pagination -->
@@ -161,12 +235,7 @@
             <button class="page-btn" :disabled="page >= totalPages" @click="goPage(page + 1)">下一页</button>
             <button class="page-btn" :disabled="page >= totalPages" @click="goPage(totalPages)">末页</button>
           </div>
-          <span class="page-info">共 {{ total }} 条，第 {{ page }}/{{ totalPages }} 页</span>
-        </div>
-
-        <div v-if="filteredIssues.length === 0" class="empty">
-          <div class="empty-icon">&#x1F50D;</div>
-          <div>暂无匹配的问题记录</div>
+          <span class="page-info">共 {{ effectiveTotal }} 条，第 {{ page }}/{{ totalPages }} 页</span>
         </div>
       </div>
     </div>
@@ -408,6 +477,73 @@
       </div>
     </div>
   </div>
+
+  <!-- Teleported Filter Popups -->
+  <teleport to="body">
+    <div v-if="showDatePicker" class="filter-popup-overlay" @click="showDatePicker = false"></div>
+    <div v-if="showDatePicker" class="date-picker-popup" :style="popupStyleDate" @click.stop>
+      <input v-model="filterDateStart" type="date" class="popup-date" />
+      <span class="date-sep">至</span>
+      <input v-model="filterDateEnd" type="date" class="popup-date" />
+      <button class="popup-confirm" @click="onDateFilter">确定</button>
+      <button v-if="filterDateStart || filterDateEnd" class="popup-clear" @click="filterDateStart='';filterDateEnd='';onDateFilter()">清除</button>
+    </div>
+
+    <div v-if="showCustomerFilter" class="filter-popup-overlay" @click="showCustomerFilter = false"></div>
+    <div v-if="showCustomerFilter" class="customer-filter-popup" :style="popupStyleCustomer" @click.stop>
+      <input v-model="customerSearch" type="text" class="filter-popup-search" placeholder="搜索..." @click.stop />
+      <div class="filter-popup-divider"></div>
+      <div class="filter-checkbox-list">
+        <div v-for="name in filteredCustomerNames" :key="name" class="filter-checkbox-item" @click="toggleCustomerName(name)">
+          <span class="filter-checkbox" :class="{ checked: filterCustomerName.includes(name) }">
+            <span v-if="filterCustomerName.includes(name)" class="check-icon">&#x2713;</span>
+          </span>
+          <span class="filter-checkbox-label">{{ name }}</span>
+        </div>
+        <div v-if="uniqueCustomerNames.length === 0" class="filter-empty">暂无客户数据</div>
+      </div>
+      <div class="filter-popup-actions">
+        <button class="popup-confirm" @click="onCustomerFilter">确定</button>
+        <button v-if="filterCustomerName.length" class="popup-clear" @click="filterCustomerName=[];onCustomerFilter()">清除</button>
+      </div>
+    </div>
+
+    <div v-if="showVersionPicker" class="filter-popup-overlay" @click="showVersionPicker = false"></div>
+    <div v-if="showVersionPicker" class="version-picker-popup" :style="popupStyleVersion" @click.stop>
+      <input v-model="versionSearch" type="text" class="filter-popup-search" placeholder="搜索..." @click.stop />
+      <div class="filter-popup-divider"></div>
+      <div class="filter-checkbox-list">
+        <div v-for="v in filteredKernelVersions" :key="v" class="filter-checkbox-item" @click="toggleKernelVersion(v)">
+          <span class="filter-checkbox" :class="{ checked: filterKernelVersions.includes(v) }">
+            <span v-if="filterKernelVersions.includes(v)" class="check-icon">&#x2713;</span>
+          </span>
+          <span class="filter-checkbox-label">{{ v }}</span>
+        </div>
+        <div v-if="uniqueKernelVersions.length === 0" class="filter-empty">暂无版本数据</div>
+      </div>
+      <div class="filter-popup-actions">
+        <button class="popup-confirm" @click="onVersionFilter">确定</button>
+        <button v-if="filterKernelVersions.length" class="popup-clear" @click="filterKernelVersions=[];onVersionFilter()">清除</button>
+      </div>
+    </div>
+
+    <div v-if="showUrgentFilter" class="filter-popup-overlay" @click="showUrgentFilter = false"></div>
+    <div v-if="showUrgentFilter" class="version-picker-popup" :style="popupStyleUrgent" @click.stop>
+      <div class="filter-checkbox-list">
+        <div class="filter-checkbox-item" @click="filterUrgentRecover='是';onUrgentFilter()">
+          <span class="filter-checkbox" :class="{ checked: filterUrgentRecover==='是' }"><span v-if="filterUrgentRecover==='是'" class="check-icon">&#x2713;</span></span>
+          <span class="filter-checkbox-label">是（紧急恢复）</span>
+        </div>
+        <div class="filter-checkbox-item" @click="filterUrgentRecover='否';onUrgentFilter()">
+          <span class="filter-checkbox" :class="{ checked: filterUrgentRecover==='否' }"><span v-if="filterUrgentRecover==='否'" class="check-icon">&#x2713;</span></span>
+          <span class="filter-checkbox-label">否</span>
+        </div>
+      </div>
+      <div class="filter-popup-actions">
+        <button v-if="filterUrgentRecover" class="popup-clear" @click="filterUrgentRecover='';onUrgentFilter()">清除</button>
+      </div>
+    </div>
+  </teleport>
 </template>
 
 <script>
@@ -421,6 +557,22 @@ export default {
     return {
       keyword: '',
       filterStatus: '',
+      filterDateStart: '',
+      filterDateEnd: '',
+      showDatePicker: false,
+      popupStyleDate: {},
+      popupStyleCustomer: {},
+      popupStyleVersion: {},
+      filterKernelVersions: [],
+      showVersionPicker: false,
+      filterCustomerName: [],
+      filterKernelVersions: [],
+      filterUrgentRecover: '',
+      showUrgentFilter: false,
+      showCustomerFilter: false,
+      customerSearch: '',
+      versionSearch: '',
+      allCustomerNames: [],
       page: 1,
       pageSize: 10,
       total: 0,
@@ -440,6 +592,8 @@ export default {
         perceiveTime: '', createTime: '', swatStartTime: '', boundTime: '', bizRecoverTime: '',
         catL1: '', catL2: '', catL3: '' },
       issues: [],
+      allIssuesFull: [],
+      allIssuesFiltered: [],
       searchTimer: null,
       allSites: [],
       allVersions: [],
@@ -450,19 +604,34 @@ export default {
       columnWidths: {},
       resizing: null,
       columnDefs: [
-        { key: 'issueNo', label: '问题编号', visible: false },
-        { key: 'occurTime', label: '日期', visible: true },
-        { key: 'customerName', label: '客户名称', visible: true },
-        { key: 'description', label: '问题简述', visible: true },
-        { key: 'category', label: '问题分类', visible: true },
-        { key: 'kernelVersion', label: '内核版本', visible: true },
-        { key: 'status', label: '状态', visible: false },
-        { key: 'keySite', label: '重点局点', visible: false },
-        { key: 'siteType', label: '局点类型', visible: false },
-        { key: 'mgmtDeploy', label: '管控部署形态', visible: false },
-        { key: 'rl', label: 'RL', visible: false },
-        { key: 'opsTicket', label: '运维系统单号', visible: false },
-        { key: 'ecareTicket', label: 'ecare单号', visible: false }
+        { key: 'issueNo', label: '问题编号', visible: false, defaultVisible: false },
+        { key: 'category', label: '问题分类', visible: true, defaultVisible: true },
+        { key: 'kernelVersion', label: '内核版本', visible: true, defaultVisible: true },
+        { key: 'status', label: '状态', visible: false, defaultVisible: false },
+        { key: 'keySite', label: '重点局点', visible: false, defaultVisible: false },
+        { key: 'siteType', label: '局点类型', visible: false, defaultVisible: false },
+        { key: 'mgmtDeploy', label: '管控部署形态', visible: false, defaultVisible: false },
+        { key: 'rl', label: 'RL', visible: false, defaultVisible: false },
+        { key: 'opsTicket', label: '运维系统单号', visible: false, defaultVisible: false },
+        { key: 'ecareTicket', label: 'ecare单号', visible: false, defaultVisible: false },
+        { key: 'kernelDeploy', label: '内核部署形态', visible: true, defaultVisible: true },
+        { key: 'bizInterrupt', label: '业务中断', visible: false, defaultVisible: false },
+        { key: 'urgentRecover', label: '紧急恢复', visible: false, defaultVisible: false },
+        { key: 'hasAlarm', label: '有无告警', visible: false, defaultVisible: false },
+        { key: 'alarmTrigger', label: '告警触发', visible: false, defaultVisible: false },
+        { key: 'occurTimeFull', label: '问题发生时间', visible: false, defaultVisible: false },
+        { key: 'perceiveTime', label: '一线感知时间', visible: false, defaultVisible: false },
+        { key: 'createTime', label: '问题建单时间', visible: false, defaultVisible: false },
+        { key: 'swatStartTime', label: 'SWAT开始处理时间', visible: false, defaultVisible: false },
+        { key: 'boundTime', label: '问题定界时间', visible: false, defaultVisible: false },
+        { key: 'bizRecoverTime', label: '业务恢复时间', visible: false, defaultVisible: false },
+        { key: 'swatPullTime', label: '拉SWAT时间', visible: false, defaultVisible: false },
+        { key: 'discoverDuration', label: '问题发现耗时', visible: false, defaultVisible: false },
+        { key: 'createOrderDuration', label: '一线建单耗时', visible: false, defaultVisible: false },
+        { key: 'warroomDuration', label: '启动WARROOM耗时', visible: false, defaultVisible: false },
+        { key: 'swatBoundDuration', label: 'SWAT定界耗时', visible: true, defaultVisible: true },
+        { key: 'swatRecoverDuration', label: 'SWAT介入恢复耗时', visible: true, defaultVisible: true },
+        { key: 'e2eDuration', label: '端到端恢复耗时', visible: true, defaultVisible: true }
       ],
       selected: { l1: [], l2: [], l3: [] },
       categories: [],
@@ -556,6 +725,26 @@ export default {
       const ids = this.parseIds(site.versionIds)
       return this.allVersions.filter(v => ids.includes(v.id))
     },
+    uniqueCustomerNames() {
+      const names = new Set(this.allCustomerNames)
+      this.filterCustomerName.forEach(n => names.add(n))
+      return Array.from(names).sort()
+    },
+    filteredCustomerNames() {
+      const kw = this.customerSearch.toLowerCase()
+      return this.uniqueCustomerNames.filter(n => n.toLowerCase().includes(kw))
+    },
+    uniqueKernelVersions() {
+      const versions = new Set()
+      this.filterKernelVersions.forEach(v => versions.add(v))
+      this.allIssuesFull.forEach(i => { if (i.kernelVersion) versions.add(i.kernelVersion) })
+      this.allVersions.forEach(v => { if (v.versionCode) versions.add(v.versionCode) })
+      return Array.from(versions).sort()
+    },
+    filteredKernelVersions() {
+      const kw = this.versionSearch.toLowerCase()
+      return this.uniqueKernelVersions.filter(v => v.toLowerCase().includes(kw))
+    },
     catL2Opts() {
       if (!this.form.catL1) return []
       const key = this.form.catL1.split(':')[0]
@@ -573,16 +762,24 @@ export default {
       }
       return []
     },
-    filteredIssues() {
-      if (!this.hasSelection) return this.issues
+    categoryFiltered() {
+      if (!this.hasSelection) return []
       const sel = new Set([...this.selected.l1, ...this.selected.l2, ...this.selected.l3])
-      return this.issues.filter(item => {
+      return this.allIssuesFiltered.filter(item => {
         const catKey = this.resolveCategoryKey(item.category)
         return catKey && sel.has(catKey)
       })
     },
+    filteredIssues() {
+      if (!this.hasSelection) return this.issues
+      const start = (this.page - 1) * this.pageSize
+      return this.categoryFiltered.slice(start, start + this.pageSize)
+    },
+    effectiveTotal() {
+      return this.hasSelection ? this.categoryFiltered.length : this.total
+    },
     totalPages() {
-      return Math.max(1, Math.ceil(this.total / this.pageSize))
+      return Math.max(1, Math.ceil(this.effectiveTotal / this.pageSize))
     },
     pageNumbers() {
       const pages = []
@@ -598,13 +795,20 @@ export default {
     }
   },
   mounted() {
-    this.loadIssues(); this.loadCategories(); this.loadSites(); this.loadVersions(); this.loadRls()
+    this.loadIssues(); this.loadAllIssuesForCounts(); this.loadAllIssuesFull(); this.loadCategories(); this.loadSites(); this.loadVersions(); this.loadRls(); this.loadCustomerNameOptions()
     document.addEventListener('click', this.onClickOutside)
     this.columnDefs.forEach(c => {
       if (c.visible && !this.columnWidths[c.key]) {
         this.columnWidths = { ...this.columnWidths, [c.key]: 120 }
       }
     })
+    if (!this.columnWidths['occurTime']) this.columnWidths = { ...this.columnWidths, occurTime: 120 }
+    if (!this.columnWidths['customerName']) this.columnWidths = { ...this.columnWidths, customerName: 120 }
+    if (!this.columnWidths['description']) this.columnWidths = { ...this.columnWidths, description: 140 }
+    if (!this.columnWidths['kernelDeploy']) this.columnWidths = { ...this.columnWidths, kernelDeploy: 120 }
+    if (!this.columnWidths['swatBoundDuration']) this.columnWidths = { ...this.columnWidths, swatBoundDuration: 130 }
+    if (!this.columnWidths['swatRecoverDuration']) this.columnWidths = { ...this.columnWidths, swatRecoverDuration: 140 }
+    if (!this.columnWidths['e2eDuration']) this.columnWidths = { ...this.columnWidths, e2eDuration: 130 }
   },
   beforeUnmount() { document.removeEventListener('click', this.onClickOutside) },
   methods: {
@@ -615,8 +819,18 @@ export default {
       if (this.showColumnPicker && !e.target.closest('.gear-btn-wrap')) {
         this.showColumnPicker = false
       }
+      if (this.showDatePicker && !e.target.closest('.th-filter')) {
+        this.showDatePicker = false
+      }
+      if (this.showVersionPicker && !e.target.closest('.th-filter')) {
+        this.showVersionPicker = false
+      }
+      if (this.showCustomerFilter && !e.target.closest('.th-filter')) {
+        this.showCustomerFilter = false
+      }
     },
     colVisible(key) {
+      if (key === 'occurTime' || key === 'customerName' || key === 'description') return true
       const def = this.columnDefs.find(c => c.key === key)
       return def ? def.visible : false
     },
@@ -629,9 +843,29 @@ export default {
         }
       }
     },
+    resetColumns() {
+      this.columnDefs.forEach(c => { c.visible = c.defaultVisible })
+    },
+    stickyStyle(key, defW) {
+      const w = (this.columnWidths[key] || defW)
+      const leftKeys = { occurTime: 0, customerName: 0, description: 0 }
+      const order = ['issueNo', 'occurTime', 'customerName', 'description']
+      let left = 0
+      for (const k of order) {
+        if (k === key) break
+        if (k === 'issueNo' && this.colVisible('issueNo')) left += (this.columnWidths['issueNo'] || 120)
+        if (k === 'occurTime') left += (this.columnWidths['occurTime'] || 120)
+        if (k === 'customerName') left += (this.columnWidths['customerName'] || 120)
+      }
+      return { width: w + 'px', minWidth: w + 'px', left: left + 'px' }
+    },
     colWidth(key) {
       const w = this.columnWidths[key]
       return w ? { width: w + 'px', minWidth: w + 'px' } : {}
+    },
+    colStyle(key) {
+      const w = this.columnWidths[key] || 120
+      return { width: w + 'px', minWidth: w + 'px' }
     },
     startResize(e, col) {
       const ths = this.$refs.resizeTable.querySelectorAll('thead th.resizable')
@@ -689,6 +923,16 @@ export default {
         const res = await fetchRls()
         this.allRls = Array.isArray(res.data) ? res.data : []
       } catch { this.allRls = [] }
+    },
+    async loadCustomerNameOptions() {
+      try {
+        const res = await fetchIssues('', '', 1, 100000, '', '', '', '')
+        const data = res.data
+        const issues = Array.isArray(data.list) ? data.list : (Array.isArray(data) ? data : [])
+        const names = new Set()
+        issues.forEach(i => { if (i.customerName) names.add(i.customerName) })
+        this.allCustomerNames = Array.from(names).sort()
+      } catch { this.allCustomerNames = [] }
     },
     async loadCategories() {
       try {
@@ -755,38 +999,35 @@ export default {
       const l2keys = l1.children.map(l2 => l2.key)
       const l3keys = []; l1.children.forEach(l2 => l2.children.forEach(l3 => l3keys.push(l3.key)))
       if (this.isL1Checked(l1)) {
-        // Deselect all
         this.selected.l1 = this.selected.l1.filter(k => k !== l1.key)
         this.selected.l2 = this.selected.l2.filter(k => !l2keys.includes(k))
         this.selected.l3 = this.selected.l3.filter(k => !l3keys.includes(k))
       } else {
-        // Select all
         if (!this.selected.l1.includes(l1.key)) this.selected.l1.push(l1.key)
         l2keys.forEach(k => { if (!this.selected.l2.includes(k)) this.selected.l2.push(k) })
         l3keys.forEach(k => { if (!this.selected.l3.includes(k)) this.selected.l3.push(k) })
       }
+      this.page = 1; this.loadIssues()
     },
     toggleL2(l1, l2) {
       const l3keys = l2.children.map(l3 => l3.key)
       if (this.isL2Checked(l1, l2)) {
         this.selected.l2 = this.selected.l2.filter(k => k !== l2.key)
         this.selected.l3 = this.selected.l3.filter(k => !l3keys.includes(k))
-        // Unchecking child: remove parent from direct selection so dash shows
         this.selected.l1 = this.selected.l1.filter(k => k !== l1.key)
       } else {
         if (!this.selected.l2.includes(l2.key)) this.selected.l2.push(l2.key)
         l3keys.forEach(k => { if (!this.selected.l3.includes(k)) this.selected.l3.push(k) })
-        // If all L2 under L1 now selected, auto-restore L1
         if (l1.children.every(c => this.selected.l2.includes(c.key))) {
           if (!this.selected.l1.includes(l1.key)) this.selected.l1.push(l1.key)
         }
       }
+      this.page = 1; this.loadIssues()
     },
     toggleL3(l1, l2, l3) {
       const idx = this.selected.l3.indexOf(l3.key)
       if (idx >= 0) {
         this.selected.l3.splice(idx, 1)
-        // Unchecking a child: if parent was directly selected, remove it so dash shows
         this.selected.l2 = this.selected.l2.filter(k => k !== l2.key)
         this.selected.l1 = this.selected.l1.filter(k => k !== l1.key)
       } else {
@@ -802,6 +1043,7 @@ export default {
           this.selected.l1.push(l1.key)
         }
       }
+      this.page = 1; this.loadIssues()
     },
     countIssuesByL1(l1) {
       const keys = new Set([l1.key])
@@ -809,7 +1051,7 @@ export default {
         keys.add(l2.key)
         l2.children.forEach(l3 => keys.add(l3.key))
       })
-      return this.issues.filter(i => {
+      return this.allIssuesFiltered.filter(i => {
         const k = this.resolveCategoryKey(i.category)
         return k && keys.has(k)
       }).length
@@ -817,13 +1059,13 @@ export default {
     countIssuesByL2(l1, l2) {
       const keys = new Set([l2.key])
       l2.children.forEach(l3 => keys.add(l3.key))
-      return this.issues.filter(i => {
+      return this.allIssuesFiltered.filter(i => {
         const k = this.resolveCategoryKey(i.category)
         return k && keys.has(k)
       }).length
     },
     countIssuesByL3(l3) {
-      return this.issues.filter(i => {
+      return this.allIssuesFiltered.filter(i => {
         const k = this.resolveCategoryKey(i.category)
         return k === l3.key
       }).length
@@ -835,14 +1077,101 @@ export default {
       }
       return ''
     },
-    clearAll() { this.selected = { l1: [], l2: [], l3: [] } },
+    clearAll() { this.selected = { l1: [], l2: [], l3: [] }; this.page = 1; this.loadIssues() },
+    openDatePicker(e) {
+      this.showDatePicker = !this.showDatePicker
+      if (this.showDatePicker) {
+        const r = e.currentTarget.getBoundingClientRect()
+        this.popupStyleDate = { position: 'fixed', top: (r.bottom + 4) + 'px', left: r.left + 'px' }
+      }
+    },
+    openCustomerPicker(e) {
+      this.showCustomerFilter = !this.showCustomerFilter
+      if (this.showCustomerFilter) {
+        this.customerSearch = ''
+        const r = e.currentTarget.getBoundingClientRect()
+        this.popupStyleCustomer = { position: 'fixed', top: (r.bottom + 4) + 'px', left: r.left + 'px' }
+      }
+    },
+    openUrgentFilter(e) {
+      this.showUrgentFilter = !this.showUrgentFilter
+      if (this.showUrgentFilter) {
+        const r = e.currentTarget.getBoundingClientRect()
+        this.popupStyleUrgent = { position: 'fixed', top: (r.bottom + 4) + 'px', left: r.left + 'px' }
+      }
+    },
+    toggleUrgentFilter() {
+      this.filterUrgentRecover = this.filterUrgentRecover === '是' ? '' : '是'
+      this.page = 1
+      this.loadIssues()
+    },
+    onUrgentFilter() { this.page = 1; this.showUrgentFilter = false; this.loadIssues() },
+    openVersionPicker(e) {
+      this.showVersionPicker = !this.showVersionPicker
+      if (this.showVersionPicker) {
+        this.versionSearch = ''
+        const r = e.currentTarget.getBoundingClientRect()
+        this.popupStyleVersion = { position: 'fixed', top: (r.bottom + 4) + 'px', left: r.left + 'px' }
+      }
+    },
+    toggleDatePicker(e) {
+      this.showDatePicker = !this.showDatePicker
+      if (this.showDatePicker) {
+        const rect = e.currentTarget.getBoundingClientRect()
+        this.popupStyleDate = { top: (rect.bottom + 4) + 'px', left: rect.left + 'px' }
+      }
+    },
+    onDateFilter() { this.page = 1; this.showDatePicker = false; this.loadIssues() },
+    toggleCustomerPicker(e) {
+      this.showCustomerFilter = !this.showCustomerFilter
+      if (this.showCustomerFilter) { const r = e.currentTarget.getBoundingClientRect(); this.popupStyleCustomer = { top: (r.bottom + 4) + 'px', left: r.left + 'px' } }
+    },
+    toggleVersionPicker(e) {
+      this.showVersionPicker = !this.showVersionPicker
+      if (this.showVersionPicker) { const r = e.currentTarget.getBoundingClientRect(); this.popupStyleVersion = { top: (r.bottom + 4) + 'px', left: r.left + 'px' } }
+    },
+    onVersionFilter() { this.page = 1; this.showVersionPicker = false; this.loadIssues() },
+    onCustomerFilter() { this.page = 1; this.showCustomerFilter = false; this.loadIssues() },
+    toggleCustomerName(name) {
+      const idx = this.filterCustomerName.indexOf(name)
+      if (idx >= 0) {
+        this.filterCustomerName.splice(idx, 1)
+      } else {
+        this.filterCustomerName.push(name)
+      }
+    },
+    toggleKernelVersion(v) {
+      const idx = this.filterKernelVersions.indexOf(v)
+      if (idx >= 0) {
+        this.filterKernelVersions.splice(idx, 1)
+      } else {
+        this.filterKernelVersions.push(v)
+      }
+    },
     async loadIssues() {
       try {
-        const res = await fetchIssues(this.keyword, this.filterStatus, this.page, this.pageSize)
+        const res = await fetchIssues(this.keyword, this.filterStatus, this.page, this.pageSize, this.filterDateStart, this.filterDateEnd, this.filterCustomerName.join(','), this.filterKernelVersions.join(','), this.filterUrgentRecover)
         const data = res.data
         this.issues = Array.isArray(data.list) ? data.list : (Array.isArray(data) ? data : [])
         this.total = data.total || 0
       } catch { this.issues = []; this.total = 0 }
+      this.loadAllIssuesForCounts()
+      this.loadAllIssuesFull()
+      this.loadCustomerNameOptions()
+    },
+    async loadAllIssuesForCounts() {
+      try {
+        const res = await fetchIssues(this.keyword, this.filterStatus, 1, 100000, this.filterDateStart, this.filterDateEnd, this.filterCustomerName.join(','), this.filterKernelVersions.join(','), this.filterUrgentRecover)
+        const data = res.data
+        this.allIssuesFiltered = Array.isArray(data.list) ? data.list : (Array.isArray(data) ? data : [])
+      } catch { this.allIssuesFiltered = [] }
+    },
+    async loadAllIssuesFull() {
+      try {
+        const res = await fetchIssues(this.keyword, this.filterStatus, 1, 100000, this.filterDateStart, this.filterDateEnd, this.filterCustomerName.join(','), '', this.filterUrgentRecover)
+        const data = res.data
+        this.allIssuesFull = Array.isArray(data.list) ? data.list : (Array.isArray(data) ? data : [])
+      } catch { this.allIssuesFull = [] }
     },
     debounceSearch() {
       clearTimeout(this.searchTimer)
@@ -1022,6 +1351,12 @@ export default {
     formatDate(val) {
       if (!val) return '-'
       return val.substring(0, 10)
+    },
+    calcMinDisplay(from, to) {
+      if (!from || !to) return '-'
+      const diff = new Date(to) - new Date(from)
+      if (isNaN(diff) || diff < 0) return '-'
+      return Math.round(diff / 60000) + ' min'
     },
     async saveIssue() {
       this.errorMsg = ''
@@ -1342,14 +1677,21 @@ export default {
 .column-picker {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: 30;
   background: #fff; border: 1px solid #e8e8e8; border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.12); padding: 8px 0; min-width: 150px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12); min-width: 150px;
+  display: flex; flex-direction: column;
 }
+.picker-scroll { max-height: 340px; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; padding: 8px 0 0; }
+.picker-scroll::-webkit-scrollbar { display: none; }
+.picker-footer { padding: 0 0 8px; }
 .picker-item {
   display: flex; align-items: center; gap: 8px; padding: 8px 16px;
   font-size: 13px; color: #333; cursor: pointer; white-space: nowrap;
 }
 .picker-item:hover { background: #f5f5f5; }
 .picker-check { width: 16px; text-align: center; color: #1890ff; font-weight: 600; }
+.picker-divider { height: 1px; background: #f0f0f0; margin: 4px 0; }
+.picker-reset { color: #999; justify-content: center; }
+.picker-reset:hover { color: #1890ff; }
 
 .status-tag { padding: 2px 8px; border-radius: 3px; font-size: 12px; }
 .s-待处理 { background: #fff7e6; color: #fa8c16; }
@@ -1431,13 +1773,28 @@ export default {
   margin-left: 16px;
 }
 
-.table-wrapper { overflow-x: auto; }
+.table-wrapper { overflow: auto; max-height: calc(100vh - 280px); }
+.panel { overflow: visible; }
+.table thead { overflow: visible; position: sticky; top: 0; z-index: 4; }
+.table thead th { background: #fafafa; }
+.table thead th { overflow: visible; position: relative; }
+.th-filter { position: relative; z-index: 1; }
+.th-filter:has(.date-picker-popup),
+.th-filter:has(.customer-filter-popup),
+.th-filter:has(.version-picker-popup) { z-index: 60; }
 .table-wrapper::-webkit-scrollbar { height: 6px; }
 .table-wrapper::-webkit-scrollbar-thumb { background: #d9d9d9; border-radius: 3px; }
 .table-wrapper::-webkit-scrollbar-thumb:hover { background: #bbb; }
 .table-wrapper::-webkit-scrollbar-track { background: transparent; }
 .table { width: 100%; min-width: 800px; border-collapse: collapse; }
 .table th, .table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.sticky-left {
+  position: sticky; z-index: 1; background: #fff;
+}
+.table thead th.sticky-left {
+  position: sticky; background: #fafafa; z-index: 5;
+}
 
 .sticky-col {
   position: sticky; right: 0; z-index: 1;
@@ -1446,7 +1803,7 @@ export default {
 }
 .sticky-col .btn-action { white-space: nowrap; flex-shrink: 0; }
 .table thead .sticky-col {
-  background: #fafafa; z-index: 2;
+  background: #fafafa; z-index: 5;
 }
 .table tbody .sticky-col::before {
   content: ''; position: absolute; left: 0; top: 0; bottom: 0;
@@ -1559,6 +1916,9 @@ code {
 }
 
 .header-btns { display: flex; gap: 10px; }
+.btn-urgent { padding: 8px 16px; background: #fff; color: #fa8c16; border: 1px solid #fa8c16; border-radius: 4px; font-size: 13px; cursor: pointer; transition: all 0.2s; }
+.btn-urgent:hover { background: #fff7e6; }
+.btn-urgent.active { background: #fa8c16; color: #fff; border-color: #fa8c16; }
 .btn-import { padding: 8px 16px; background: #fff; color: #1890ff; border: 1px solid #1890ff; border-radius: 4px; font-size: 13px; cursor: pointer; }
 .btn-import:hover { background: #e6f7ff; }
 
@@ -1578,4 +1938,33 @@ code {
 .preview-table td { padding: 6px 10px; border-bottom: 1px solid #f5f5f5; color: #333; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview-more { padding: 8px 12px; text-align: center; color: #bbb; font-size: 13px; }
 .msg-success { color: #52c41a; font-size: 13px; background: #f6ffed; padding: 8px 12px; border-radius: 4px; margin-bottom: 12px; }
+.th-filter { display: flex; align-items: center; gap: 4px; position: relative; }
+.filter-icon { cursor: pointer; color: #bbb; transition: color 0.15s; margin-left: auto; display: flex; align-items: center; }
+.filter-icon:hover { color: #666; }
+.filter-icon.active { color: #1890ff; }
+.filter-popup-overlay { position: fixed; inset: 0; z-index: 98; }
+.date-picker-popup { position: fixed !important; z-index: 99; background: #fff; border: 1px solid #e8e8e8; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); padding: 8px; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.customer-filter-popup, .version-picker-popup { position: fixed !important; z-index: 99; background: #fff; border: 1px solid #e8e8e8; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); padding: 8px; min-width: 180px; max-height: 300px; overflow-y: auto; }
+.filter-popup-search { display: block; width: calc(100% - 24px); margin: 8px 12px; padding: 7px 10px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 13px; outline: none; box-sizing: border-box; }
+.filter-popup-search:focus { border-color: #1890ff; }
+.filter-popup-divider { height: 1px; background: #f0f0f0; margin: 0 4px 4px; }
+.popup-date { padding: 4px 8px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 13px; outline: none; }
+.date-sep { font-size: 12px; color: #999; }
+.popup-confirm { padding: 4px 10px; border: none; background: #1890ff; color: #fff; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.popup-confirm:hover { opacity: 0.85; }
+.popup-clear { padding: 4px 10px; border: 1px solid #d9d9d9; background: #fff; color: #999; border-radius: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.popup-clear:hover { border-color: #ff4d4f; color: #ff4d4f; }
+.version-picker-popup { position: absolute; top: 100%; left: 0; z-index: 200; background: #fff; border: 1px solid #e8e8e8; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); padding: 4px 0; min-width: 180px; }
+.popup-select { padding: 6px 8px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 13px; outline: none; min-width: 160px; background: #fff; }
+.customer-filter-popup { position: absolute; top: 100%; left: 0; z-index: 200; background: #fff; border: 1px solid #e8e8e8; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); padding: 4px 0; min-width: 180px; }
+.filter-checkbox-list { max-height: 220px; overflow-y: auto; padding: 4px 8px; }
+.filter-checkbox-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; cursor: pointer; border-radius: 4px; font-size: 13px; color: #333; }
+.filter-checkbox-item:hover { background: #f5f5f5; }
+.filter-checkbox { width: 15px; height: 15px; border: 2px solid #d9d9d9; border-radius: 3px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+.filter-checkbox.checked { background: #1890ff; border-color: #1890ff; }
+.filter-checkbox .check-icon { font-size: 10px; color: #fff; line-height: 1; }
+.filter-checkbox-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-popup-actions { display: flex; gap: 6px; padding: 8px 10px 4px; border-top: 1px solid #f0f0f0; }
+.filter-empty { padding: 16px; text-align: center; color: #bbb; font-size: 13px; }
+.popup-select:focus { border-color: #1890ff; }
 </style>

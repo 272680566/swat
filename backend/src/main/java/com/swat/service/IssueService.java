@@ -16,11 +16,11 @@ public class IssueService {
         this.issueMapper = issueMapper;
     }
 
-    public Map<String, Object> list(String keyword, String status, int page, int pageSize) {
+    public Map<String, Object> list(String keyword, String status, String filterDateStart, String filterDateEnd, String filterCustomerName, String filterKernelVersion, String filterUrgentRecover, int page, int pageSize) {
         Map<String, Object> result = new HashMap<>();
-        int total = issueMapper.countFiltered(keyword, status);
+        int total = issueMapper.countFiltered(keyword, status, filterDateStart, filterDateEnd, filterCustomerName, filterKernelVersion, filterUrgentRecover);
         int offset = (page - 1) * pageSize;
-        result.put("list", issueMapper.findAll(keyword, status, offset, pageSize));
+        result.put("list", issueMapper.findAll(keyword, status, filterDateStart, filterDateEnd, filterCustomerName, filterKernelVersion, filterUrgentRecover, offset, pageSize));
         result.put("total", total);
         result.put("page", page);
         result.put("pageSize", pageSize);

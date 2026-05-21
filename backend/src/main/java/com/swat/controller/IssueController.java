@@ -21,9 +21,14 @@ public class IssueController {
     public Map<String, Object> list(
             @RequestParam(required = false, defaultValue = "") String keyword,
             @RequestParam(required = false, defaultValue = "") String status,
+            @RequestParam(required = false, defaultValue = "") String filterDateStart,
+            @RequestParam(required = false, defaultValue = "") String filterDateEnd,
+            @RequestParam(required = false, defaultValue = "") String filterCustomerName,
+            @RequestParam(required = false, defaultValue = "") String filterKernelVersion,
+            @RequestParam(required = false, defaultValue = "") String filterUrgentRecover,
             @RequestParam(required = false, defaultValue = "1") int page,
             @RequestParam(required = false, defaultValue = "10") int pageSize) {
-        return issueService.list(keyword, status, page, pageSize);
+        return issueService.list(keyword, status, filterDateStart, filterDateEnd, filterCustomerName, filterKernelVersion, filterUrgentRecover, page, pageSize);
     }
 
     @GetMapping("/{id}")

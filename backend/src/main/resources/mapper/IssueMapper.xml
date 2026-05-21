@@ -25,6 +25,21 @@
             <if test="status != null and status != ''">
                 AND status = #{status}
             </if>
+            <if test="filterDateStart != null and filterDateStart != ''">
+                AND handle_date::DATE &gt;= #{filterDateStart}::DATE
+            </if>
+            <if test="filterDateEnd != null and filterDateEnd != ''">
+                AND handle_date::DATE &lt;= #{filterDateEnd}::DATE
+            </if>
+            <if test="filterCustomerName != null and filterCustomerName != ''">
+                AND customer_name = ANY(string_to_array(#{filterCustomerName}, ','))
+            </if>
+            <if test="filterKernelVersion != null and filterKernelVersion != ''">
+                AND kernel_version = ANY(string_to_array(#{filterKernelVersion}, ','))
+            </if>
+            <if test="filterUrgentRecover != null and filterUrgentRecover != ''">
+                AND urgent_recover = (#{filterUrgentRecover} = '是')
+            </if>
         </where>
     </sql>
 

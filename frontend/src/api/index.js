@@ -73,8 +73,8 @@ export function checkVersionCode(code) {
 }
 
 // Issue APIs
-export function fetchIssues(keyword, status, page, pageSize) {
-  return api.get('/issues', { params: { keyword, status, page, pageSize } })
+export function fetchIssues(keyword, status, page, pageSize, filterDateStart, filterDateEnd, filterCustomerName, filterKernelVersion, filterUrgentRecover) {
+  return api.get('/issues', { params: { keyword, status, page, pageSize, filterDateStart, filterDateEnd, filterCustomerName, filterKernelVersion, filterUrgentRecover } })
 }
 
 export function fetchIssue(id) {

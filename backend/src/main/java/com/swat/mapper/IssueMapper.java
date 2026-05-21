@@ -10,9 +10,19 @@ import java.util.List;
 public interface IssueMapper {
 
     List<Issue> findAll(@Param("keyword") String keyword, @Param("status") String status,
+                        @Param("filterDateStart") String filterDateStart,
+                        @Param("filterDateEnd") String filterDateEnd,
+                        @Param("filterCustomerName") String filterCustomerName,
+                        @Param("filterKernelVersion") String filterKernelVersion,
+                        @Param("filterUrgentRecover") String filterUrgentRecover,
                         @Param("offset") int offset, @Param("limit") int limit);
 
-    int countFiltered(@Param("keyword") String keyword, @Param("status") String status);
+    int countFiltered(@Param("keyword") String keyword, @Param("status") String status,
+                      @Param("filterDateStart") String filterDateStart,
+                      @Param("filterDateEnd") String filterDateEnd,
+                      @Param("filterCustomerName") String filterCustomerName,
+                      @Param("filterKernelVersion") String filterKernelVersion,
+                      @Param("filterUrgentRecover") String filterUrgentRecover);
 
     Issue findById(@Param("id") Long id);
 
