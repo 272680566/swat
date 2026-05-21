@@ -2,7 +2,10 @@
   <div>
     <div class="panel-header">
       <h3>局点管理</h3>
-      <button class="btn-add" @click="openAdd">&#x2795; 新增局点</button>
+      <div class="header-btns">
+        <button class="btn-import" @click="openImport">&#x1F4C1; 批量导入</button>
+        <button class="btn-add" @click="openAdd">&#x2795; 新增局点</button>
+      </div>
     </div>
 
     <div class="panel">
@@ -80,7 +83,6 @@
               :disabled="editing"
               :class="{ 'input-disabled': editing }"
             />
-            <span v-if="editing" class="hint">编辑模式下不可修改局点名称</span>
           </div>
           <div class="form-group">
             <label>涉及版本</label>
@@ -94,17 +96,22 @@
                 <span class="arrow">&#x25BE;</span>
               </div>
               <div class="dropdown-panel" v-show="dropdownOpen">
-                <div
-                  v-for="ver in allVersions"
-                  :key="ver.id"
-                  class="dropdown-item"
-                  :class="{ selected: form.versionIds.includes(ver.id) }"
-                  @click="toggleVersion(ver.id)"
-                >
-                  <span class="checkmark">{{ form.versionIds.includes(ver.id) ? '&#x2713;' : '' }}</span>
-                  {{ ver.versionCode }}
+                <div class="dropdown-search-bar">
+                  <input v-model="versionSearch" type="text" class="dropdown-search" placeholder="搜索版本..." @click.stop />
                 </div>
-                <div v-if="allVersions.length === 0" class="dropdown-empty">暂无版本</div>
+                <div class="dropdown-scroll">
+                  <div
+                    v-for="ver in filteredAllVersions"
+                    :key="ver.id"
+                    class="dropdown-item"
+                    :class="{ selected: form.versionIds.includes(ver.id) }"
+                    @click="toggleVersion(ver.id)"
+                  >
+                    <span class="checkmark">{{ form.versionIds.includes(ver.id) ? '&#x2713;' : '' }}</span>
+                    {{ ver.versionCode }}
+                  </div>
+                  <div v-if="filteredAllVersions.length === 0" class="dropdown-empty">无匹配版本</div>
+                </div>
               </div>
             </div>
             <span v-if="!editing" class="hint">可选，后续可编辑时添加</span>
@@ -176,12 +183,50 @@
       </div>
     </div>
   </div>
+
+  <!-- Import Modal -->
+  <div class="modal-overlay" v-if="showImport" @click.self="showImport = false">
+    <div class="modal">
+      <h3>批量导入局点</h3>
+      <div class="import-area" @click="pickImportFile">
+        <input type="file" ref="importFileInput" accept=".csv,.xlsx,.xls" @change="handleImportFile" class="import-file-input" />
+        <div class="import-upload">
+          <span class="import-icon">&#x1F4C2;</span>
+          <p>点击选择文件</p>
+          <p class="import-hint">支持 Excel（.xlsx）格式，解析列：局点名称</p>
+        </div>
+      </div>
+      <div v-if="importPreview.length" class="import-preview">
+        <h4>预览 ({{ importPreview.length }} 条)</h4>
+        <div class="preview-table-wrap">
+          <table class="preview-table">
+            <thead><tr><th v-for="k in importKeys" :key="k">{{ k }}</th></tr></thead>
+            <tbody>
+              <tr v-for="(row, idx) in importPreview.slice(0, 8)" :key="idx">
+                <td v-for="k in importKeys" :key="k">{{ row[k] || '-' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="importPreview.length > 8" class="preview-more">... 还有 {{ importPreview.length - 8 }} 条</div>
+      </div>
+      <div v-if="importError" class="msg-error">{{ importError }}</div>
+      <div v-if="importSuccess" class="msg-success">{{ importSuccess }}</div>
+      <div class="form-actions">
+        <button class="btn-submit" :disabled="!importPreview.length || importing" @click="doImportSites">
+          {{ importing ? '导入中...' : '确认导入' }}
+        </button>
+        <button class="btn-cancel" @click="showImport = false">取消</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script>
 import { fetchSites, createSite, updateSite, deleteSite, checkSiteName } from '../api'
 import { fetchAllVersions } from '../api'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import * as XLSX from 'xlsx'
 
 export default {
   name: 'SiteManagementView',
@@ -200,10 +245,22 @@ export default {
       total: 0,
       allVersions: [],
       searchTimer: null,
-      dropdownOpen: false
+      dropdownOpen: false,
+      versionSearch: '',
+      showImport: false,
+      importPreview: [],
+      importError: '',
+      importSuccess: '',
+      importing: false
     }
   },
   computed: {
+    importKeys() { return this.importPreview.length ? Object.keys(this.importPreview[0]) : [] },
+    filteredAllVersions() {
+      const kw = this.versionSearch.toLowerCase()
+      if (!kw) return this.allVersions
+      return this.allVersions.filter(v => v.versionCode.toLowerCase().includes(kw))
+    },
     totalPages() { return Math.max(1, Math.ceil(this.total / this.pageSize)) },
     pageNumbers() {
       const pages = []; const tp = this.totalPages
@@ -232,6 +289,47 @@ export default {
         this.sites = []; this.total = 0
       }
     },
+    openImport() { this.showImport = true; this.importPreview = []; this.importError = ''; this.importSuccess = '' },
+    pickImportFile() { this.$refs.importFileInput.click() },
+    handleImportFile(e) { const f = e.target.files[0]; if (f) this.parseImportFile(f); e.target.value = '' },
+    parseImportFile(file) {
+      this.importError = ''; this.importSuccess = ''; this.importPreview = []
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        try {
+          const wb = XLSX.read(ev.target.result, { type: 'array' })
+          const ws = wb.Sheets[wb.SheetNames[0]]
+          const json = XLSX.utils.sheet_to_json(ws, { header: 1 })
+          if (json.length < 2) { this.importError = '文件内容为空'; return }
+          const headers = json[0].map(h => String(h || '').trim())
+          const data = json.slice(1).map(row => {
+            const obj = {}
+            headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? String(row[i] || '').trim() : '' })
+            return obj
+          }).filter(d => Object.values(d).some(v => v))
+          if (data.length === 0) { this.importError = '未解析到有效数据'; return }
+          this.importPreview = data
+        } catch { this.importError = '文件解析失败' }
+      }
+      reader.onerror = () => { this.importError = '文件读取失败' }
+      reader.readAsArrayBuffer(file)
+    },
+    async doImportSites() {
+      this.importError = ''; this.importSuccess = ''; this.importing = true
+      let count = 0
+      const getField = (row, ...keys) => { for (const k of keys) { if (row[k]) return row[k] } return '' }
+      for (const row of this.importPreview) {
+        try {
+          const name = getField(row, '局点名称', 'name')
+          if (!name) continue
+          const res = await createSite({ name, code: '', region: '', contact: '', phone: '', active: true, versionIds: '[]' })
+          if (res.data && res.data.success) count++
+        } catch {}
+      }
+      if (count > 0) { this.importSuccess = `成功导入 ${count} 条`; this.showImport = false; this.loadSites() }
+      else { this.importError = '导入失败' }
+      this.importing = false
+    },
     async loadVersions() {
       try {
         const res = await fetchAllVersions()
@@ -259,6 +357,7 @@ export default {
     handleClickOutside(e) {
       if (this.$refs.multiSelect && !this.$refs.multiSelect.contains(e.target)) {
         this.dropdownOpen = false
+        this.versionSearch = ''
       }
     },
     parseIds(raw) {
@@ -580,8 +679,6 @@ export default {
   top: 100%;
   left: 0;
   right: 0;
-  max-height: 200px;
-  overflow-y: auto;
   background: #fff;
   border: 1px solid #d9d9d9;
   border-top: none;
@@ -589,6 +686,12 @@ export default {
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   z-index: 10;
 }
+.dropdown-search-bar { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
+.dropdown-search { display: block; width: 100%; padding: 6px 10px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 13px; outline: none; box-sizing: border-box; }
+.dropdown-search:focus { border-color: #1890ff; }
+.dropdown-scroll { max-height: 180px; overflow-y: auto; scrollbar-width: thin; }
+.dropdown-scroll::-webkit-scrollbar { width: 4px; }
+.dropdown-scroll::-webkit-scrollbar-thumb { background: #d9d9d9; border-radius: 2px; }
 
 .dropdown-item {
   display: flex;
@@ -673,4 +776,23 @@ export default {
 .page-btn.active { background: #1890ff; border-color: #1890ff; color: #fff; }
 .page-btn:disabled { color: #d9d9d9; cursor: not-allowed; }
 .page-info { font-size: 13px; color: #999; margin-left: 12px; flex-shrink: 0; }
+.header-btns { display: flex; gap: 10px; }
+.btn-import { padding: 8px 16px; background: #fff; color: #1890ff; border: 1px solid #1890ff; border-radius: 4px; font-size: 13px; cursor: pointer; }
+.btn-import:hover { background: #e6f7ff; }
+.import-file-input { display: none; }
+.import-area { margin-bottom: 16px; cursor: pointer; }
+.import-upload { display: block; border: 2px dashed #d9d9d9; border-radius: 8px; padding: 40px 20px; text-align: center; }
+.import-upload:hover { border-color: #1890ff; background: #fafbfc; }
+.import-icon { font-size: 36px; display: block; margin-bottom: 8px; }
+.import-upload p { color: #666; font-size: 14px; margin: 0; }
+.import-hint { font-size: 12px !important; color: #bbb !important; margin-top: 4px !important; }
+.import-preview { margin-bottom: 16px; }
+.import-preview h4 { font-size: 14px; color: #333; margin-bottom: 8px; }
+.preview-table-wrap { max-height: 260px; overflow: auto; border: 1px solid #f0f0f0; border-radius: 4px; }
+.preview-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.preview-table th { background: #fafafa; padding: 8px 10px; text-align: left; border-bottom: 1px solid #f0f0f0; color: #666; white-space: nowrap; }
+.preview-table td { padding: 6px 10px; border-bottom: 1px solid #f5f5f5; color: #333; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-more { padding: 8px 12px; text-align: center; color: #bbb; font-size: 13px; }
+.msg-error { color: #ff4d4f; font-size: 13px; background: #fff1f0; padding: 8px 12px; border-radius: 4px; margin-bottom: 12px; }
+.msg-success { color: #52c41a; font-size: 13px; background: #f6ffed; padding: 8px 12px; border-radius: 4px; margin-bottom: 12px; }
 </style>

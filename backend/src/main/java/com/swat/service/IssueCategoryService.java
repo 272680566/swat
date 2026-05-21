@@ -1,6 +1,8 @@
 package com.swat.service;
 
 import com.swat.mapper.IssueCategoryMapper;
+import com.swat.mapper.IssueMapper;
+import com.swat.model.Issue;
 import com.swat.model.IssueCategory;
 import org.springframework.stereotype.Service;
 
@@ -10,9 +12,11 @@ import java.util.*;
 public class IssueCategoryService {
 
     private final IssueCategoryMapper mapper;
+    private final IssueMapper issueMapper;
 
-    public IssueCategoryService(IssueCategoryMapper mapper) {
+    public IssueCategoryService(IssueCategoryMapper mapper, IssueMapper issueMapper) {
         this.mapper = mapper;
+        this.issueMapper = issueMapper;
     }
 
     /** Return full tree with children nested */
@@ -86,17 +90,47 @@ public class IssueCategoryService {
             result.put("message", "分类不存在");
             return result;
         }
-        if (cat.getName() != null && !cat.getName().trim().isEmpty()) {
-            existing.setName(cat.getName().trim());
+        String oldName = existing.getName();
+        String newName = cat.getName() != null ? cat.getName().trim() : null;
+
+        if (newName != null && !newName.isEmpty()) {
+            existing.setName(newName);
         }
         if (cat.getSortOrder() != null) existing.setSortOrder(cat.getSortOrder());
         if (cat.getColor() != null) existing.setColor(cat.getColor());
         existing.setId(id);
 
         mapper.update(existing);
+
+        // Sync issue category fields
+        if (newName != null && !newName.isEmpty() && !newName.equals(oldName)) {
+            syncIssueCategories(oldName, newName);
+        }
+
         result.put("success", true);
         result.put("message", "更新成功");
         return result;
+    }
+
+    private void syncIssueCategories(String oldName, String newName) {
+        List<Issue> all = issueMapper.findAll("", "", "", "", "", "", "", 0, 100000);
+        for (Issue issue : all) {
+            String cat = issue.getCategory();
+            if (cat != null && !cat.isEmpty()) {
+                String[] parts = cat.split(" > ");
+                boolean changed = false;
+                for (int i = 0; i < parts.length; i++) {
+                    if (parts[i].trim().equals(oldName)) {
+                        parts[i] = newName;
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    issue.setCategory(String.join(" > ", parts));
+                    issueMapper.update(issue);
+                }
+            }
+        }
     }
 
     public Map<String, Object> delete(Long id) {

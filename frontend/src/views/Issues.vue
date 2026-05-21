@@ -81,6 +81,7 @@
       <div class="panel">
         <div class="search-bar">
           <div class="gear-btn-wrap">
+            <button class="clear-btn" @click="clearAllFilters" title="清空所有筛选">&#x21BA;</button>
             <button class="gear-btn" @click.stop="showColumnPicker = !showColumnPicker">&#x2699;</button>
             <div v-if="showColumnPicker" class="column-picker" @click.stop>
             <div class="picker-scroll">
@@ -725,8 +726,12 @@ export default {
       const ids = this.parseIds(site.versionIds)
       return this.allVersions.filter(v => ids.includes(v.id))
     },
+    effectiveFiltered() {
+      return this.hasSelection ? this.categoryFiltered : this.allIssuesFiltered
+    },
     uniqueCustomerNames() {
-      const names = new Set(this.allCustomerNames)
+      const names = new Set()
+      this.effectiveFiltered.forEach(i => { if (i.customerName) names.add(i.customerName) })
       this.filterCustomerName.forEach(n => names.add(n))
       return Array.from(names).sort()
     },
@@ -737,8 +742,7 @@ export default {
     uniqueKernelVersions() {
       const versions = new Set()
       this.filterKernelVersions.forEach(v => versions.add(v))
-      this.allIssuesFull.forEach(i => { if (i.kernelVersion) versions.add(i.kernelVersion) })
-      this.allVersions.forEach(v => { if (v.versionCode) versions.add(v.versionCode) })
+      this.effectiveFiltered.forEach(i => { if (i.kernelVersion) versions.add(i.kernelVersion) })
       return Array.from(versions).sort()
     },
     filteredKernelVersions() {
@@ -795,8 +799,10 @@ export default {
     }
   },
   mounted() {
+    this.restoreFilterState()
     this.loadIssues(); this.loadAllIssuesForCounts(); this.loadAllIssuesFull(); this.loadCategories(); this.loadSites(); this.loadVersions(); this.loadRls(); this.loadCustomerNameOptions()
     document.addEventListener('click', this.onClickOutside)
+    window.addEventListener('beforeunload', this.saveFilterState)
     this.columnDefs.forEach(c => {
       if (c.visible && !this.columnWidths[c.key]) {
         this.columnWidths = { ...this.columnWidths, [c.key]: 120 }
@@ -810,7 +816,15 @@ export default {
     if (!this.columnWidths['swatRecoverDuration']) this.columnWidths = { ...this.columnWidths, swatRecoverDuration: 140 }
     if (!this.columnWidths['e2eDuration']) this.columnWidths = { ...this.columnWidths, e2eDuration: 130 }
   },
-  beforeUnmount() { document.removeEventListener('click', this.onClickOutside) },
+  beforeUnmount() {
+    document.removeEventListener('click', this.onClickOutside)
+    this.saveFilterState()
+  },
+  activated() {
+    this.restoreFilterState()
+    this.loadIssues(); this.loadAllIssuesForCounts(); this.loadAllIssuesFull(); this.loadCustomerNameOptions()
+  },
+  deactivated() { this.saveFilterState() },
   methods: {
     onClickOutside(e) {
       if (this.$refs.siteDropdown && !this.$refs.siteDropdown.contains(e.target)) {
@@ -906,6 +920,36 @@ export default {
       this.siteDropdownOpen = false
       this.siteSearch = ''
     },
+    saveFilterState() {
+      const state = {
+        keyword: this.keyword, filterStatus: this.filterStatus,
+        filterDateStart: this.filterDateStart, filterDateEnd: this.filterDateEnd,
+        filterCustomerName: this.filterCustomerName, filterKernelVersions: this.filterKernelVersions,
+        filterUrgentRecover: this.filterUrgentRecover,
+        page: this.page, pageSize: this.pageSize, total: this.total,
+        selected: this.selected, columnWidths: this.columnWidths
+      }
+      sessionStorage.setItem('issuesFilterState', JSON.stringify(state))
+    },
+    restoreFilterState() {
+      try {
+        const raw = sessionStorage.getItem('issuesFilterState')
+        if (!raw) return
+        const state = JSON.parse(raw)
+        this.keyword = state.keyword || ''
+        this.filterStatus = state.filterStatus || ''
+        this.filterDateStart = state.filterDateStart || ''
+        this.filterDateEnd = state.filterDateEnd || ''
+        this.filterCustomerName = state.filterCustomerName || []
+        this.filterKernelVersions = state.filterKernelVersions || []
+        this.filterUrgentRecover = state.filterUrgentRecover || ''
+        this.page = state.page || 1
+        this.pageSize = state.pageSize || 10
+        this.total = state.total || 0
+        this.selected = state.selected || { l1: [], l2: [], l3: [] }
+        this.columnWidths = state.columnWidths || {}
+      } catch {}
+    },
     async loadSites() {
       try {
         const res = await fetchAllSites()
@@ -952,14 +996,19 @@ export default {
     },
     resolveCategoryKey(cat) {
       if (!cat) return null
+      const parts = cat.split(' > ').map(p => p.trim())
       for (const l1 of this.categories) {
-        for (const l2 of l1.children) {
-          for (const l3 of l2.children) {
-            if (cat.includes(l3.name)) return l3.key
+        if (parts[0] === l1.name) {
+          if (parts.length === 1) return l1.key
+          for (const l2 of l1.children) {
+            if (parts[1] === l2.name) {
+              if (parts.length === 2) return l2.key
+              for (const l3 of l2.children) {
+                if (parts[2] === l3.name) return l3.key
+              }
+            }
           }
-          if (cat.includes(l2.name)) return l2.key
         }
-        if (cat.startsWith(l1.name)) return l1.key
       }
       return null
     },
@@ -1078,6 +1127,12 @@ export default {
       return ''
     },
     clearAll() { this.selected = { l1: [], l2: [], l3: [] }; this.page = 1; this.loadIssues() },
+    clearAllFilters() {
+      this.keyword = ''; this.filterStatus = ''; this.filterDateStart = ''; this.filterDateEnd = ''
+      this.filterCustomerName = []; this.filterKernelVersions = []; this.filterUrgentRecover = ''
+      this.selected = { l1: [], l2: [], l3: [] }; this.page = 1
+      this.loadIssues()
+    },
     openDatePicker(e) {
       this.showDatePicker = !this.showDatePicker
       if (this.showDatePicker) {
@@ -1654,7 +1709,9 @@ export default {
 .result-count { font-size: 13px; color: #999; margin-left: auto; }
 
 /* ---- Column Resize & Gear ---- */
-.gear-btn-wrap { position: relative; margin-left: auto; }
+.gear-btn-wrap { position: relative; margin-left: auto; display: flex; gap: 6px; }
+.clear-btn { width: 32px; height: 32px; border: 1px solid #d9d9d9; background: #fff; border-radius: 4px; font-size: 15px; color: #888; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; line-height: 1; padding: 0; }
+.clear-btn:hover { border-color: #ff4d4f; color: #ff4d4f; }
 .gear-btn {
   width: 32px; height: 32px; border: 1px solid #d9d9d9; background: #fff;
   border-radius: 4px; font-size: 16px; color: #888; cursor: pointer;
@@ -1944,7 +2001,11 @@ code {
 .filter-icon.active { color: #1890ff; }
 .filter-popup-overlay { position: fixed; inset: 0; z-index: 98; }
 .date-picker-popup { position: fixed !important; z-index: 99; background: #fff; border: 1px solid #e8e8e8; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); padding: 8px; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
-.customer-filter-popup, .version-picker-popup { position: fixed !important; z-index: 99; background: #fff; border: 1px solid #e8e8e8; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); padding: 8px; min-width: 180px; max-height: 300px; overflow-y: auto; }
+.customer-filter-popup, .version-picker-popup { position: fixed !important; z-index: 99; background: #fff; border: 1px solid #e8e8e8; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); padding: 8px; min-width: 180px; display: flex; flex-direction: column; }
+.filter-checkbox-list { max-height: 220px; overflow-y: auto; scrollbar-width: thin; }
+.filter-checkbox-list::-webkit-scrollbar { width: 4px; }
+.filter-checkbox-list::-webkit-scrollbar-thumb { background: #d9d9d9; border-radius: 2px; }
+.filter-popup-actions { padding-top: 8px; border-top: 1px solid #f0f0f0; display: flex; gap: 6px; justify-content: flex-end; flex-shrink: 0; }
 .filter-popup-search { display: block; width: calc(100% - 24px); margin: 8px 12px; padding: 7px 10px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 13px; outline: none; box-sizing: border-box; }
 .filter-popup-search:focus { border-color: #1890ff; }
 .filter-popup-divider { height: 1px; background: #f0f0f0; margin: 0 4px 4px; }

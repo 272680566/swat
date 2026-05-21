@@ -54,7 +54,9 @@
       </header>
 
       <main class="content">
-        <router-view />
+        <keep-alive include="IssuesView">
+          <router-view />
+        </keep-alive>
       </main>
     </div>
   </div>

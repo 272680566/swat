@@ -107,7 +107,11 @@
                 <option v-for="r in allRls" :key="r.id" :value="r.name">{{ r.name }}</option>
               </select>
             </div>
-            <div class="info-item full"><label>问题简述</label><span>{{ issue.description || '-' }}</span></div>
+            <div class="info-item full">
+              <label>问题简述</label>
+              <span v-if="!editingBasic">{{ issue.description || '-' }}</span>
+              <textarea v-else v-model="formBasic.description" class="field-textarea" rows="3" placeholder="请输入问题简述"></textarea>
+            </div>
             <div class="info-item">
               <label>运维系统单号</label>
               <span v-if="!editingBasic" :class="{ muted: !formBasic.opsTicket }">{{ formBasic.opsTicket || '待补充' }}</span>
@@ -345,7 +349,7 @@ export default {
       allCategories: [],
       allRls: [],
       categoryOptions: [],
-      formBasic: { handleDate: '', keySite: false, siteType: '金融', mgmtDeploy: '', kernelVersion: '', kernelDeploy: '', rl: '', opsTicket: '', ecareTicket: '', category: '', catL1: '', catL2: '', catL3: '' },
+      formBasic: { handleDate: '', keySite: false, siteType: '金融', mgmtDeploy: '', kernelVersion: '', kernelDeploy: '', rl: '', opsTicket: '', ecareTicket: '', category: '', catL1: '', catL2: '', catL3: '', description: '' },
       formQuick: { bizInterrupt: false, urgentRecover: false, remark: '' },
       formFind: { hasAlarm: false, alarmTrigger: false, remark: '' },
       formTime: { occurTime: '', perceiveTime: '', createTime: '', swatStartTime: '', boundTime: '', bizRecoverTime: '', fullRecoverTime: '', remark: '' },
@@ -474,7 +478,8 @@ export default {
         opsTicket: this.issue.opsTicket || '',
         ecareTicket: this.issue.ecareTicket || '',
         category: this.issue.category || '',
-        catL1: '', catL2: '', catL3: ''
+        catL1: '', catL2: '', catL3: '',
+        description: this.issue.description || ''
       }
       this.parseCategoryToCascade()
       this.formQuick = {
@@ -516,9 +521,11 @@ export default {
       this.issue.rl = this.formBasic.rl
       this.issue.opsTicket = this.formBasic.opsTicket
       this.issue.ecareTicket = this.formBasic.ecareTicket
+      this.issue.description = this.formBasic.description
       this.issue.category = this.buildCategoryFromCascade()
       this.formBasic.category = this.issue.category
       await updateIssue(this.issue.id, {
+        description: this.issue.description,
         handleDate: this.issue.handleDate,
         keySite: this.issue.keySite, siteType: this.issue.siteType,
         mgmtDeploy: this.issue.mgmtDeploy, kernelVersion: this.issue.kernelVersion,

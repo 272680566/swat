@@ -2,7 +2,10 @@
   <div>
     <div class="panel-header">
       <h3>版本管理</h3>
-      <button class="btn-add" @click="openAdd">&#x2795; 新增版本</button>
+      <div class="header-btns">
+        <button class="btn-import" @click="openImport">&#x1F4C1; 批量导入</button>
+        <button class="btn-add" @click="openAdd">&#x2795; 新增版本</button>
+      </div>
     </div>
 
     <div class="panel">
@@ -65,7 +68,7 @@
           <div class="form-row">
             <div class="form-group">
               <label>版本号 <span class="required">*</span></label>
-              <input v-model="form.versionCode" type="text" placeholder="如 505.2.1.SPC0800" />
+              <input v-model="form.versionCode" type="text" placeholder="如 505.2.1.SPC0800" :disabled="editing" :class="{ 'input-disabled': editing }" />
             </div>
             <div class="form-group">
               <label>发布日期</label>
@@ -92,8 +95,8 @@
             </select>
           </div>
           <div class="form-group">
-            <label>变更说明</label>
-            <textarea v-model="form.notes" rows="4" placeholder="请输入版本变更说明..."></textarea>
+            <label>版本说明</label>
+            <textarea v-model="form.notes" rows="4" placeholder="请输入版本说明..."></textarea>
           </div>
           <div v-if="errorMsg" class="msg-error">{{ errorMsg }}</div>
           <div class="form-actions">
@@ -106,12 +109,50 @@
       </div>
     </div>
   </div>
+
+  <!-- Import Modal -->
+  <div class="modal-overlay" v-if="showImport" @click.self="showImport = false">
+    <div class="modal">
+      <h3>批量导入版本</h3>
+      <div class="import-area" @click="pickImportFile">
+        <input type="file" ref="importFileInput" accept=".csv,.xlsx,.xls" @change="handleImportFile" class="import-file-input" />
+        <div class="import-upload">
+          <span class="import-icon">&#x1F4C2;</span>
+          <p>点击选择文件</p>
+          <p class="import-hint">支持 Excel（.xlsx）格式，解析列：版本号</p>
+        </div>
+      </div>
+      <div v-if="importPreview.length" class="import-preview">
+        <h4>预览 ({{ importPreview.length }} 条)</h4>
+        <div class="preview-table-wrap">
+          <table class="preview-table">
+            <thead><tr><th v-for="k in importKeys" :key="k">{{ k }}</th></tr></thead>
+            <tbody>
+              <tr v-for="(row, idx) in importPreview.slice(0, 8)" :key="idx">
+                <td v-for="k in importKeys" :key="k">{{ row[k] || '-' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="importPreview.length > 8" class="preview-more">... 还有 {{ importPreview.length - 8 }} 条</div>
+      </div>
+      <div v-if="importError" class="msg-error">{{ importError }}</div>
+      <div v-if="importSuccess" class="msg-success">{{ importSuccess }}</div>
+      <div class="form-actions">
+        <button class="btn-submit" :disabled="!importPreview.length || importing" @click="doImportVersions">
+          {{ importing ? '导入中...' : '确认导入' }}
+        </button>
+        <button class="btn-cancel" @click="showImport = false">取消</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script>
 import { fetchVersions, createVersion, updateVersion, deleteVersion, checkVersionCode } from '../api'
 import { fetchAllSites } from '../api'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import * as XLSX from 'xlsx'
 
 export default {
   name: 'VersionManagementView',
@@ -130,10 +171,16 @@ export default {
       page: 1,
       pageSize: 10,
       total: 0,
-      editRelatedSites: []
+      editRelatedSites: [],
+      showImport: false,
+      importPreview: [],
+      importError: '',
+      importSuccess: '',
+      importing: false
     }
   },
   computed: {
+    importKeys() { return this.importPreview.length ? Object.keys(this.importPreview[0]) : [] },
     totalPages() { return Math.max(1, Math.ceil(this.total / this.pageSize)) },
     pageNumbers() {
       const pages = []; const tp = this.totalPages
@@ -186,6 +233,47 @@ export default {
     },
     goPage(p) { this.page = p; this.loadVersions() },
     onPageSizeChange() { this.page = 1; this.loadVersions() },
+    openImport() { this.showImport = true; this.importPreview = []; this.importError = ''; this.importSuccess = '' },
+    pickImportFile() { this.$refs.importFileInput.click() },
+    handleImportFile(e) { const f = e.target.files[0]; if (f) this.parseImportFile(f); e.target.value = '' },
+    parseImportFile(file) {
+      this.importError = ''; this.importSuccess = ''; this.importPreview = []
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        try {
+          const wb = XLSX.read(ev.target.result, { type: 'array' })
+          const ws = wb.Sheets[wb.SheetNames[0]]
+          const json = XLSX.utils.sheet_to_json(ws, { header: 1 })
+          if (json.length < 2) { this.importError = '文件内容为空'; return }
+          const headers = json[0].map(h => String(h || '').trim())
+          const data = json.slice(1).map(row => {
+            const obj = {}
+            headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? String(row[i] || '').trim() : '' })
+            return obj
+          }).filter(d => Object.values(d).some(v => v))
+          if (data.length === 0) { this.importError = '未解析到有效数据'; return }
+          this.importPreview = data
+        } catch { this.importError = '文件解析失败' }
+      }
+      reader.onerror = () => { this.importError = '文件读取失败' }
+      reader.readAsArrayBuffer(file)
+    },
+    async doImportVersions() {
+      this.importError = ''; this.importSuccess = ''; this.importing = true
+      let count = 0
+      const getField = (row, ...keys) => { for (const k of keys) { if (row[k]) return row[k] } return '' }
+      for (const row of this.importPreview) {
+        try {
+          const vc = getField(row, '版本号', 'versionCode')
+          if (!vc) continue
+          const res = await createVersion({ versionCode: vc, releaseDate: null, sites: '[]', status: 'dev', notes: '' })
+          if (res.data && res.data.success) count++
+        } catch {}
+      }
+      if (count > 0) { this.importSuccess = `成功导入 ${count} 条`; this.showImport = false; this.loadVersions() }
+      else { this.importError = '导入失败' }
+      this.importing = false
+    },
     openAdd() {
       this.editing = false
       this.editId = null
@@ -394,15 +482,16 @@ code {
 .form-group input,
 .form-group select,
 .form-group textarea {
-  width: 100%;
+  width: 100%; height: 38px;
   padding: 8px 12px;
   border: 1px solid #d9d9d9;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 14px; box-sizing: border-box;
   outline: none;
   font-family: inherit;
 }
 
+.form-group textarea { height: auto; }
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
@@ -466,4 +555,25 @@ code {
 .page-btn.active { background: #1890ff; border-color: #1890ff; color: #fff; }
 .page-btn:disabled { color: #d9d9d9; cursor: not-allowed; }
 .page-info { font-size: 13px; color: #999; margin-left: 12px; flex-shrink: 0; }
+.input-disabled { background: #f5f5f5; color: #999; cursor: not-allowed; }
+.hint { font-size: 12px; color: #999; margin-top: 2px; display: block; }
+.header-btns { display: flex; gap: 10px; }
+.btn-import { padding: 8px 16px; background: #fff; color: #1890ff; border: 1px solid #1890ff; border-radius: 4px; font-size: 13px; cursor: pointer; }
+.btn-import:hover { background: #e6f7ff; }
+.import-file-input { display: none; }
+.import-area { margin-bottom: 16px; cursor: pointer; }
+.import-upload { display: block; border: 2px dashed #d9d9d9; border-radius: 8px; padding: 40px 20px; text-align: center; }
+.import-upload:hover { border-color: #1890ff; background: #fafbfc; }
+.import-icon { font-size: 36px; display: block; margin-bottom: 8px; }
+.import-upload p { color: #666; font-size: 14px; margin: 0; }
+.import-hint { font-size: 12px !important; color: #bbb !important; margin-top: 4px !important; }
+.import-preview { margin-bottom: 16px; }
+.import-preview h4 { font-size: 14px; color: #333; margin-bottom: 8px; }
+.preview-table-wrap { max-height: 260px; overflow: auto; border: 1px solid #f0f0f0; border-radius: 4px; }
+.preview-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.preview-table th { background: #fafafa; padding: 8px 10px; text-align: left; border-bottom: 1px solid #f0f0f0; color: #666; white-space: nowrap; }
+.preview-table td { padding: 6px 10px; border-bottom: 1px solid #f5f5f5; color: #333; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-more { padding: 8px 12px; text-align: center; color: #bbb; font-size: 13px; }
+.msg-error { color: #ff4d4f; font-size: 13px; background: #fff1f0; padding: 8px 12px; border-radius: 4px; margin-bottom: 12px; }
+.msg-success { color: #52c41a; font-size: 13px; background: #f6ffed; padding: 8px 12px; border-radius: 4px; margin-bottom: 12px; }
 </style>
